@@ -1,0 +1,90 @@
+name: Routogram Architecture Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  architecture-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Routogram
+        run: pnpm build
+
+      - name: Lint architecture rules
+        shell: bash
+        run: |
+          if compgen -G "routogram.config.*" > /dev/null; then
+            node packages/cli/dist/index.js lint
+          else
+            echo "No routogram.config.* found; skipping architecture lint."
+          fi
+
+      - name: Diff architecture against base
+        id: diff
+        shell: bash
+        run: |
+          set +e
+          node packages/cli/dist/index.js diff \
+            --base "origin/${{ github.base_ref }}" \
+            --head HEAD \
+            --format markdown \
+            > architecture-diff.md 2> architecture-diff.err
+          status=$?
+          set -e
+
+          if [ -s architecture-diff.md ]; then
+            cat architecture-diff.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -s architecture-diff.err ]; then
+            cat architecture-diff.err >&2
+          fi
+
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Comment topology diff on PR
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [ -s architecture-diff.md ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file architecture-diff.md
+          fi
+
+      - name: Enforce architecture gate
+        if: steps.diff.outputs.exit_code != '0'
+        shell: bash
+        run: |
+          echo "Routogram architecture gate failed. See the PR comment and job summary."
+          exit 1

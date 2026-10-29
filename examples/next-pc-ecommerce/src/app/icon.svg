@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>PC Forge</title>
+  <rect width="64" height="64" rx="14" fill="#07111f"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#38bdf8" stroke-opacity=".45"/>
+  <path d="M18 44V20h13.2c6.4 0 10.3 3.3 10.3 8.7 0 4.1-2.2 6.9-6.1 8l7.2 7.3h-7.8l-6-6.7h-3.9V44H18Zm6.9-11.9h5.7c2.8 0 4.3-1.2 4.3-3.4 0-2.1-1.5-3.3-4.3-3.3h-5.7v6.7Z" fill="#7dd3fc"/>
+</svg>

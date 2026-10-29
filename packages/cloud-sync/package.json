@@ -1,0 +1,25 @@
+{
+  "name": "@routogram/cloud-sync",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Anonymized Routogram snapshot packaging and cloud upload adapters.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@routogram/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^7.0.2"
+  }
+}

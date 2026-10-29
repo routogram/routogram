@@ -1,0 +1,59 @@
+# Dependencies
+# Phụ thuộc
+node_modules/
+.pnpm-store/
+
+# Build output
+# Sản phẩm build
+dist/
+routogram-report/
+target/
+*.node
+*.tsbuildinfo
+
+# Tooling caches
+# Cache công cụ
+.turbo/
+.vite/
+coverage/
+.biome/
+
+# Environment
+# Biến môi trường
+.env
+.env.*
+!.env.example
+
+# Editors
+# Trình soạn thảo
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+# Hệ điều hành
+.DS_Store
+Thumbs.db
+
+# Logs
+# Nhật ký
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Cargo
+**/*.rs.bk
+
+packages/cli/canvas/
+
+packages/cli/assets/
+
+routogram-report.html
+
+crates/routogram-core/npm/
+
+.routogram/snapshots/
+.routogram/graph-rag.json
+.routogram/graph-rag.sqlite

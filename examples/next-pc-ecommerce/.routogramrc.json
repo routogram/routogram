@@ -1,0 +1,26 @@
+{
+  "$schema": "../../packages/cli/configuration_schema.json",
+  "framework": "next",
+  "routerType": "app",
+  "root": "src",
+  "aliases": {
+    "@/*": "src/*"
+  },
+  "tokens": {
+    "prefix": "--zl-"
+  },
+  "maxDepth": 8,
+  "ai": {
+    "default": "deepseek-flash",
+    "providers": [
+      {
+        "id": "deepseek-flash",
+        "name": "DeepSeek-V4.1-Flash",
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "apiKey": "${DEEPSEEK_API_KEY}",
+        "baseUrl": "https://api.deepseek.com"
+      }
+    ]
+  }
+}

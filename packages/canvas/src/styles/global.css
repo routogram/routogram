@@ -1,0 +1,203 @@
+/* biome-ignore-all lint/complexity/noImportantStyles: Hover states must override React Flow inline node/edge styles. */
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --rg-canvas: #09090b;
+  --rg-surface: #0b0d12;
+  --rg-surface-raised: #12151c;
+  --rg-border: rgb(255 255 255 / 0.07);
+  --rg-accent: #38bdf8;
+  --rg-token: #a78bfa;
+  --rg-warning: #fb923c;
+  --rg-danger: #fb7185;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--rg-canvas);
+  color: #e2e8f0;
+  font-family:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.react-flow__attribution {
+  background: transparent;
+  color: #475569;
+}
+
+.react-flow__attribution a {
+  color: inherit;
+}
+
+.react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--rg-border);
+  border-radius: 0.75rem;
+  background: var(--rg-surface);
+}
+
+.react-flow__controls-button {
+  border-bottom-color: var(--rg-border);
+  background: var(--rg-surface);
+  fill: #94a3b8;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--rg-surface-raised);
+}
+
+.react-flow__edge-path {
+  vector-effect: non-scaling-stroke;
+}
+
+.react-flow__minimap {
+  overflow: hidden;
+  border: 1px solid var(--rg-border);
+  border-radius: 0.75rem;
+  background: var(--rg-surface);
+}
+
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgb(148 163 184 / 0.55);
+  background: var(--rg-canvas);
+}
+
+.react-flow__handle-left {
+  left: 0;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.react-flow__handle-right {
+  right: 0;
+  top: 50%;
+  transform: translate(50%, -50%);
+}
+
+.react-flow__panel.react-flow__attribution {
+  display: none;
+}
+
+.routogram-lod-minimal .routogram-node-detail,
+.routogram-lod-minimal .routogram-node-secondary,
+.routogram-lod-minimal .react-flow__handle,
+.routogram-lod-minimal .react-flow__edge-textwrapper {
+  display: none;
+}
+
+.routogram-lod-compact .routogram-node-secondary {
+  display: none;
+}
+
+@keyframes routogram-route-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgb(56 189 248 / 0.7),
+      0 0 18px rgb(56 189 248 / 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgb(56 189 248 / 0.95),
+      0 0 32px rgb(56 189 248 / 0.55);
+  }
+}
+
+.react-flow__node.routogram-runtime-active {
+  animation: routogram-route-pulse 2s ease-in-out infinite;
+}
+
+/* ELK layout transitions keep expand/collapse movement readable. */
+/* Transition ELK giữ chuyển động expand/collapse mượt mà. */
+.react-flow__node {
+  pointer-events: auto;
+  transition: transform 220ms ease;
+}
+
+.react-flow__node.dragging {
+  transition: none;
+}
+
+.react-flow__node.routogram-health-safe {
+  --rg-border-active: #34d399;
+  --rg-hover-glow: rgb(16 185 129 / 0.7);
+  --rg-hover-glow-soft: rgb(16 185 129 / 0.35);
+}
+
+.react-flow__node.routogram-health-tidy {
+  --rg-border-active: #38bdf8;
+  --rg-hover-glow: rgb(14 165 233 / 0.7);
+  --rg-hover-glow-soft: rgb(14 165 233 / 0.35);
+}
+
+.react-flow__node.routogram-health-warning {
+  --rg-border-active: #fbbf24;
+  --rg-hover-glow: rgb(245 158 11 / 0.75);
+  --rg-hover-glow-soft: rgb(245 158 11 / 0.35);
+}
+
+.react-flow__node.routogram-health-danger {
+  --rg-border-active: #fb7185;
+  --rg-hover-glow: rgb(244 63 94 / 0.8);
+  --rg-hover-glow-soft: rgb(244 63 94 / 0.4);
+}
+
+.react-flow__node.routogram-hover-target,
+.react-flow__node.routogram-hover-ancestor,
+.react-flow__node.routogram-store-match {
+  background-color: #0e0e12 !important;
+  opacity: 0.95 !important;
+}
+
+.react-flow__node.routogram-hover-target {
+  border-color: var(--rg-border-active) !important;
+  box-shadow: 0 0 24px var(--rg-hover-glow) !important;
+  z-index: 30 !important;
+}
+
+.react-flow__node.routogram-hover-ancestor {
+  border-color: var(--rg-border-active) !important;
+  box-shadow: 0 0 10px var(--rg-hover-glow-soft) !important;
+  z-index: 20 !important;
+}
+
+.react-flow__node.routogram-hover-off {
+  pointer-events: auto !important;
+  opacity: 0.2 !important;
+}
+
+.react-flow__edge.routogram-hover-path .react-flow__edge-path {
+  stroke: #22d3ee !important;
+  stroke-width: 2 !important;
+  opacity: 1 !important;
+}
+
+.react-flow__edge.routogram-hover-off .react-flow__edge-path,
+.react-flow__edge.routogram-store-off .react-flow__edge-path {
+  opacity: 0.15 !important;
+}
+
+.react-flow__node.routogram-store-match {
+  border-color: #818cf8 !important;
+  box-shadow:
+    0 0 0 2px #6366f1,
+    0 0 20px rgb(99 102 241 / 0.5) !important;
+  opacity: 1 !important;
+  z-index: 30 !important;
+}
+
+.react-flow__node.routogram-store-off {
+  opacity: 0.2 !important;
+  pointer-events: none !important;
+}

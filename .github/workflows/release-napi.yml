@@ -1,0 +1,140 @@
+name: Build native binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-napi:
+    name: NAPI ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: wasm32-wasip1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl toolchain
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build NAPI binary
+        if: matrix.target != 'wasm32-wasip1'
+        run: pnpm exec napi build --cwd crates/routogram-core --platform --release --target ${{ matrix.target }}
+
+      - name: Build WASI binary
+        if: matrix.target == 'wasm32-wasip1'
+        shell: bash
+        run: |
+          export EMNAPI_LINK_DIR="$(node -e "console.log(require('node:path').join(require.resolve('emnapi'),'..','lib','wasm32-wasip1'))")"
+          pnpm exec napi build --cwd crates/routogram-core --target wasm32-wasip1 --no-default-features
+          cp target/wasm32-wasip1/release/routogram_core.wasm crates/routogram-core/routogram-core.wasm32-wasip1.wasm
+          cp target/wasm32-wasip1/release/routogram_core.wasm crates/routogram-core/routogram-core.wasm32-wasi.wasm
+
+      - name: Upload native addon
+        if: matrix.target != 'wasm32-wasip1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: routogram-core-${{ matrix.target }}
+          path: crates/routogram-core/*.node
+          if-no-files-found: error
+
+      - name: Upload WASI addon
+        if: matrix.target == 'wasm32-wasip1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: routogram-core-${{ matrix.target }}
+          path: |
+            crates/routogram-core/*.wasm
+            crates/routogram-core/*.wasi.cjs
+          if-no-files-found: error
+
+  assemble:
+    name: Assemble release packages
+    needs: build-napi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download all native and WASI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Copy artifacts into the core package
+        shell: bash
+        run: |
+          find artifacts -type f \( -name '*.node' -o -name '*.wasm' -o -name '*.wasi.cjs' \) -exec cp {} crates/routogram-core/ \;
+
+      - name: Generate platform packages and WASI loaders
+        run: |
+          pnpm exec napi create-npm-dirs --cwd crates/routogram-core
+          pnpm exec napi pre-publish --cwd crates/routogram-core --skip-optional-publish
+
+      - name: Upload assembled distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: routogram-distribution
+          path: |
+            crates/routogram-core/*.node
+            crates/routogram-core/*.wasm
+            crates/routogram-core/*.wasi.cjs
+            crates/routogram-core/npm/**
+          if-no-files-found: error

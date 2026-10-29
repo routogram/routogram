@@ -1,0 +1,43 @@
+{
+  "name": "@routogram/core",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Native static-analysis core and Node.js bridge for Routogram.",
+  "license": "Apache-2.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node",
+    "*.wasm",
+    "*.wasi.cjs"
+  ],
+  "napi": {
+    "binaryName": "routogram-core",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc",
+      "wasm32-wasip1"
+    ],
+    "wasm": {
+      "optionalDependency": true
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@emnapi/core": "2.0.0-alpha.4",
+    "@emnapi/runtime": "2.0.0-alpha.4",
+    "@napi-rs/cli": "^3.10.9",
+    "@napi-rs/wasm-runtime": "^1.2.6",
+    "emnapi": "2.0.0-alpha.4"
+  }
+}

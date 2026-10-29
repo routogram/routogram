@@ -1,0 +1,107 @@
+{
+  "common": {
+    "brand": "PC Forge",
+    "viewDetails": "Xem chi tiết",
+    "addToCart": "Thêm vào giỏ",
+    "browseBuilds": "Xem cấu hình",
+    "currency": "VND"
+  },
+  "site": {
+    "nav": {
+      "builds": "Dàn PC",
+      "components": "Linh kiện",
+      "deals": "Black Friday"
+    },
+    "searchPlaceholder": "Tìm dàn PC và linh kiện",
+    "hero": {
+      "eyebrow": "Bộ sưu tập gaming 2026",
+      "title": "Hiện thực hóa cỗ máy bạn hằng ao ước.",
+      "subtitle": "Linh kiện tuyển chọn, cấu hình đã kiểm thử và những dàn tản nhiệt nước được lắp bởi chính người chơi.",
+      "primaryCta": "Xem dàn PC nổi bật",
+      "secondaryCta": "Mở công cụ build PC"
+    },
+    "featured": {
+      "eyebrow": "Sẵn sàng giao",
+      "title": "Dàn PC nổi bật",
+      "subtitle": "Mỗi cấu hình đều cân bằng, được benchmark và bảo hành hai năm."
+    },
+    "builder": {
+      "eyebrow": "Tự xây cấu hình",
+      "title": "Build PC nhanh",
+      "cpu": "Bộ xử lý",
+      "gpu": "Card đồ họa",
+      "memory": "Bộ nhớ",
+      "estimated": "Tạm tính",
+      "calculate": "Tính cấu hình"
+    },
+    "footer": {
+      "tagline": "PC và linh kiện cho những người thực sự quan tâm từng chi tiết.",
+      "shop": "Cửa hàng",
+      "support": "Hỗ trợ",
+      "shipping": "Vận chuyển",
+      "warranty": "Bảo hành",
+      "contact": "Liên hệ"
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Chào mừng trở lại",
+      "subtitle": "Đăng nhập để theo dõi đơn hàng, bảo hành và cấu hình đã lưu.",
+      "email": "Địa chỉ email",
+      "password": "Mật khẩu",
+      "submit": "Đăng nhập",
+      "noAccount": "Chưa có tài khoản?",
+      "signUp": "Tạo tài khoản",
+      "demo": "Demo: email bất kỳ và mật khẩu từ 4 ký tự."
+    },
+    "signUp": {
+      "title": "Tạo tài khoản",
+      "subtitle": "Lưu cấu hình và nhận hỗ trợ nhanh hơn.",
+      "name": "Họ và tên",
+      "email": "Địa chỉ email",
+      "password": "Mật khẩu",
+      "submit": "Tạo tài khoản",
+      "hasAccount": "Đã có tài khoản?",
+      "login": "Đăng nhập"
+    }
+  },
+  "console": {
+    "title": "Bảng điều khiển",
+    "subtitle": "Doanh thu, đơn hàng và tồn kho trong một màn hình.",
+    "nav": {
+      "overview": "Tổng quan",
+      "products": "Sản phẩm",
+      "orders": "Đơn hàng",
+      "customers": "Khách hàng",
+      "settings": "Cài đặt"
+    },
+    "metrics": {
+      "revenue": "Doanh thu",
+      "orders": "Đơn hàng",
+      "lowStock": "Sắp hết hàng",
+      "averageOrder": "Giá trị TB"
+    },
+    "recentOrders": "Đơn hàng gần đây",
+    "inventory": "Cần chú ý tồn kho",
+    "products": {
+      "title": "Quản lý sản phẩm",
+      "subtitle": "Quản lý hiển thị, giá và tồn kho.",
+      "search": "Tìm sản phẩm",
+      "filter": "Lọc",
+      "all": "Tất cả danh mục",
+      "product": "Sản phẩm",
+      "category": "Danh mục",
+      "stock": "Tồn kho",
+      "price": "Giá",
+      "status": "Trạng thái"
+    }
+  },
+  "landing": {
+    "badge": "Black Friday · Tuần lễ tản nhiệt nước",
+    "title": "Hiệu năng dưới 0°C. Giá thì bốc cháy.",
+    "subtitle": "Dàn tản nhiệt nước và combo linh kiện giới hạn. Hết giờ là giá trở lại.",
+    "countdown": "Kết thúc sau",
+    "deals": "Ưu đãi hôm nay",
+    "claim": "Nhận ưu đãi"
+  }
+}

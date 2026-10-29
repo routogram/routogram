@@ -1,0 +1,107 @@
+{
+  "common": {
+    "brand": "PC Forge",
+    "viewDetails": "View details",
+    "addToCart": "Add to cart",
+    "browseBuilds": "Browse builds",
+    "currency": "USD"
+  },
+  "site": {
+    "nav": {
+      "builds": "PC Builds",
+      "components": "Components",
+      "deals": "Black Friday"
+    },
+    "searchPlaceholder": "Search builds and components",
+    "hero": {
+      "eyebrow": "The 2026 gaming collection",
+      "title": "Build the machine you have been imagining.",
+      "subtitle": "Hand-picked components, tested configurations, and water-cooled flagships assembled by people who actually game.",
+      "primaryCta": "Shop featured builds",
+      "secondaryCta": "Open PC builder"
+    },
+    "featured": {
+      "eyebrow": "Ready to ship",
+      "title": "Featured PC builds",
+      "subtitle": "Every configuration is balanced, benchmarked, and covered by a two-year warranty."
+    },
+    "builder": {
+      "eyebrow": "Build it your way",
+      "title": "Quick PC builder",
+      "cpu": "Processor",
+      "gpu": "Graphics card",
+      "memory": "Memory",
+      "estimated": "Estimated total",
+      "calculate": "Calculate build"
+    },
+    "footer": {
+      "tagline": "Custom PCs and components for people who care about the details.",
+      "shop": "Shop",
+      "support": "Support",
+      "shipping": "Shipping",
+      "warranty": "Warranty",
+      "contact": "Contact"
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Welcome back",
+      "subtitle": "Sign in to track orders, warranties, and saved builds.",
+      "email": "Email address",
+      "password": "Password",
+      "submit": "Sign in",
+      "noAccount": "New to PC Forge?",
+      "signUp": "Create an account",
+      "demo": "Demo: any email and a password of at least 4 characters."
+    },
+    "signUp": {
+      "title": "Create your account",
+      "subtitle": "Save builds and get faster support.",
+      "name": "Full name",
+      "email": "Email address",
+      "password": "Password",
+      "submit": "Create account",
+      "hasAccount": "Already have an account?",
+      "login": "Sign in"
+    }
+  },
+  "console": {
+    "title": "Shop console",
+    "subtitle": "Revenue, orders, and inventory at a glance.",
+    "nav": {
+      "overview": "Overview",
+      "products": "Products",
+      "orders": "Orders",
+      "customers": "Customers",
+      "settings": "Settings"
+    },
+    "metrics": {
+      "revenue": "Revenue",
+      "orders": "Orders",
+      "lowStock": "Low stock items",
+      "averageOrder": "Average order"
+    },
+    "recentOrders": "Recent orders",
+    "inventory": "Inventory attention",
+    "products": {
+      "title": "Product management",
+      "subtitle": "Manage catalog visibility, pricing, and stock.",
+      "search": "Search products",
+      "filter": "Filter",
+      "all": "All categories",
+      "product": "Product",
+      "category": "Category",
+      "stock": "Stock",
+      "price": "Price",
+      "status": "Status"
+    }
+  },
+  "landing": {
+    "badge": "Black Friday · Water cooling week",
+    "title": "Sub-zero performance. Red-hot prices.",
+    "subtitle": "Limited water-cooled builds and component bundles. When the timer ends, the prices go back up.",
+    "countdown": "Sale ends in",
+    "deals": "Today's deals",
+    "claim": "Claim deal"
+  }
+}

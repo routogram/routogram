@@ -1,0 +1,51 @@
+{
+  "name": "routogram-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codebase architectural topology and navigation engine for modern web projects.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "engines": {
+    "node": ">=22.13.0",
+    "pnpm": ">=12.14.0"
+  },
+  "scripts": {
+    "dev": "pnpm build:types && pnpm build:native:debug && pnpm build:cloud && pnpm build:client && pnpm --parallel --filter routogram --filter @routogram/canvas dev",
+    "routogram": "node packages/cli/bin/routogram.js",
+    "dev:cli": "pnpm --filter @routogram/cloud-sync build && pnpm --filter routogram dev",
+    "dev:canvas": "pnpm --filter @routogram/canvas dev",
+    "build": "pnpm build:native && pnpm build:types && pnpm build:cloud && pnpm build:plugins && pnpm build:client && pnpm build:cli && pnpm build:extension && pnpm build:canvas && node scripts/build-report-template.mjs && pnpm build:lsp",
+    "build:core": "cargo build --release --workspace",
+    "build:types": "pnpm --filter @routogram/types build",
+    "build:native": "pnpm exec napi build --cwd crates/routogram-core --platform --release",
+    "build:native:debug": "pnpm exec napi build --cwd crates/routogram-core --platform",
+    "build:cli": "pnpm --filter routogram build",
+    "build:client": "pnpm --filter @routogram/client build",
+    "build:extension": "pnpm --filter routogram-vscode build",
+    "build:cloud": "pnpm --filter @routogram/cloud-sync build",
+    "build:lsp": "cargo build --release --bin routogram-lsp --no-default-features --features lsp-cli && node scripts/copy-lsp.mjs",
+    "build:canvas": "pnpm --filter @routogram/canvas build && node scripts/copy-canvas.mjs",
+    "build:canvas-bundle": "node scripts/copy-canvas.mjs",
+    "typecheck": "pnpm build:types && pnpm build:cloud && pnpm build:plugins && pnpm -r --filter \"./packages/**\" exec tsc --noEmit",
+    "test": "pnpm test:rust",
+    "test:rust": "cargo test --workspace --lib",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "clean": "node scripts/clean.mjs",
+    "verify": "pnpm lint && pnpm typecheck && pnpm build",
+    "postinstall": "pnpm build:types && pnpm build:cloud && pnpm build:plugins",
+    "build:plugins": "pnpm --filter @routogram/plugin-core build && pnpm --filter @routogram/plugin-react build && pnpm --filter @routogram/plugin-next build && pnpm --filter @routogram/plugin-vue build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "@emnapi/core": "2.0.0-alpha.4",
+    "@emnapi/runtime": "2.0.0-alpha.4",
+    "@napi-rs/cli": "^3.10.9",
+    "@napi-rs/wasm-runtime": "^1.2.6",
+    "emnapi": "2.0.0-alpha.4",
+    "typescript": "^7.0.2",
+    "routogram": "link:packages/cli"
+  }
+}

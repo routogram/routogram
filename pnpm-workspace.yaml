@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+  - "examples/next-pc-ecommerce"
+
+allowBuilds:
+  "@biomejs/biome": true
+  "@tailwindcss/oxide": true
+  esbuild: true
+  "@parcel/watcher": true
+  "@swc/core": true

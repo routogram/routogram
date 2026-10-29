@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RoutogramConfiguration",
+  "description": "Configuration schema for Routogram architecture analyzer",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Path to this configuration schema"
+    },
+    "framework": {
+      "type": "string",
+      "enum": [
+        "next",
+        "astro",
+        "vue",
+        "react"
+      ],
+      "default": "next",
+      "description": "Framework used in the project"
+    },
+    "routerType": {
+      "type": "string",
+      "enum": [
+        "app",
+        "pages"
+      ],
+      "default": "app",
+      "description": "Next.js routing pattern (App Router vs Pages Router)"
+    },
+    "root": {
+      "type": "string",
+      "default": "src",
+      "description": "Source root directory to scan"
+    },
+    "aliases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Path aliases mapping, e.g. @/* -> src/*"
+    },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "default": "--zl-",
+          "description": "CSS Custom Property token prefix to validate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "maxDepth": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 8,
+      "description": "Maximum component tree traversal depth"
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Linting and architecture rules"
+    },
+    "editor": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": [
+            "cursor",
+            "vscode"
+          ],
+          "default": "cursor"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "ID c\u1ee7a provider m\u1eb7c \u0111\u1ecbnh"
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "provider",
+              "model"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "deepseek",
+                  "openai",
+                  "anthropic",
+                  "custom"
+                ]
+              },
+              "model": {
+                "type": "string"
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "H\u1ed7 tr\u1ee3 chu\u1ed7i bi\u1ebfn m\u00f4i tr\u01b0\u1eddng d\u1ea1ng ${ENV_KEY}"
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "defaultEffort": {
+                "type": "string",
+                "enum": [
+                  "Low",
+                  "Medium",
+                  "High"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

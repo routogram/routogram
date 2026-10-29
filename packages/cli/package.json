@@ -1,0 +1,48 @@
+{
+  "name": "routogram",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Routogram CLI and local topology daemon.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "routogram": "./bin/routogram.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "assets",
+    "bin",
+    "configuration_schema.json"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts --no-open --no-canvas",
+    "build": "tsc -p tsconfig.json && pnpm build:schema",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:schema": "node scripts/build-schema.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@routogram/cloud-sync": "workspace:*",
+    "@routogram/plugin-core": "workspace:*",
+    "@routogram/plugin-next": "workspace:*",
+    "@routogram/plugin-react": "workspace:*",
+    "@routogram/plugin-vue": "workspace:*",
+    "@routogram/types": "workspace:*",
+    "dotenv": "^18.0.9",
+    "hono": "^4.13.14",
+    "jiti": "^2.7.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@routogram/core": "link:../../crates/routogram-core",
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

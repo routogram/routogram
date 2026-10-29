@@ -1,0 +1,96 @@
+{
+  "name": "routogram-vscode",
+  "displayName": "Routogram",
+  "description": "Architecture topology, blast radius, and Auto-Fix inside VS Code and Cursor.",
+  "version": "0.1.0",
+  "publisher": "routogram",
+  "private": false,
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "architecture",
+    "topology",
+    "react",
+    "monorepo",
+    "routogram"
+  ],
+  "activationEvents": [
+    "onView:routogram.topology",
+    "onCommand:routogram.openCanvas",
+    "onCommand:routogram.showBlastRadius",
+    "onCommand:routogram.focusNode",
+    "onLanguage:typescriptreact",
+    "onLanguage:javascriptreact"
+  ],
+  "main": "./dist/extension.js",
+  "files": [
+    "dist",
+    "media",
+    "README.md"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Routogram",
+      "properties": {
+        "routogram.daemonUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4040",
+          "description": "Routogram daemon URL."
+        },
+        "routogram.canvasUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:6060",
+          "description": "Routogram canvas URL."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "routogram",
+          "title": "Routogram",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "routogram": [
+        {
+          "id": "routogram.topology",
+          "name": "Topology",
+          "type": "webview",
+          "contextualTitle": "Routogram Topology"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "routogram.openCanvas",
+        "title": "Routogram: Open Full Canvas in Browser"
+      },
+      {
+        "command": "routogram.showBlastRadius",
+        "title": "Routogram: Show Component Blast Radius"
+      },
+      {
+        "command": "routogram.focusNode",
+        "title": "Routogram: Focus Node"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.9.3"
+  }
+}
