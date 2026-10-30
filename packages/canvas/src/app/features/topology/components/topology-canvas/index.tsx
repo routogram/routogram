@@ -1,5 +1,6 @@
 import type { HealthLevel, NodeHealthData } from "@routogram/plugin-core";
 import {
+  type DiagnosticsUpdatedPayload,
   ROUTOGRAM_LAYER_META,
   type RoutogramEdge,
   type RoutogramNode,
@@ -26,13 +27,19 @@ import {
   useStore,
   type Viewport,
 } from "@xyflow/react";
-import { AlertTriangle, Check } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  NodePositionsContext,
+  RoutogramEdge as RoutogramFlowEdge,
+} from "@/components/edges/routogram-edge";
 import { RoutogramFlowNode } from "@/components/nodes/routogram-flow-node";
+import { getCachedDiagnostics } from "@/lib/apis";
 import { FRAMEWORK_BADGE_CONFIG } from "@/lib/constants/framework-badges";
+import { computeNodeBlastRadius, setBlastRadiusGraph } from "@/lib/utils/blast-radius";
 import { normalizeUIFramework } from "@/lib/utils/detect-framework";
 import { formatComponentName } from "@/lib/utils/format-name";
 import { getAncestorPath } from "@/lib/utils/graph-path";
+import { resolveIslandVisual } from "@/lib/utils/island-framework";
 import { findRuntimeComponent, runtimeHeatColor } from "@/lib/utils/runtime";
 import type { TopologyView } from "@/lib/utils/topology-view";
 import {
@@ -52,6 +59,7 @@ const LAYER_COLUMN: Record<RoutogramNodeLayer, number> = {
 };
 
 const NODE_TYPES = { routogram: RoutogramFlowNode };
+const EDGE_TYPES = { step: RoutogramFlowEdge };
 
 const HEALTH_META: Record<
   HealthLevel,
@@ -82,6 +90,21 @@ const HEALTH_META: Record<
     background: "#151014",
   },
 };
+
+function worstHealth(base: HealthLevel, diagnostics: readonly { severity: string }[]): HealthLevel {
+  if (base === "danger") return "danger";
+  if (
+    diagnostics.some(
+      (diagnostic) => diagnostic.severity === "danger" || diagnostic.severity === "error",
+    )
+  ) {
+    return "danger";
+  }
+  if (base === "warning" || diagnostics.some((diagnostic) => diagnostic.severity === "warning")) {
+    return "warning";
+  }
+  return base;
+}
 
 export type TopologyCanvasProps = {
   view: TopologyView;
@@ -157,6 +180,8 @@ function TopologyCanvasInner({
       edges: view.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)),
     };
   }, [layout.positions, layout.running, view]);
+  const layoutPositionsRef = useRef<LayoutPositions>(layout.positions);
+  layoutPositionsRef.current = layout.positions;
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(
     buildFlowNodes(
       positionedView,
@@ -227,7 +252,10 @@ function TopologyCanvasInner({
   );
 
   const handleNodeMouseEnter = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
+    (event: React.MouseEvent, node: Node) => {
+      if (event.target instanceof Element && event.target.closest(".routogram-node-toggle")) {
+        return;
+      }
       if (selectedNodeId) {
         return;
       }
@@ -270,6 +298,65 @@ function TopologyCanvasInner({
     }
 
     applyHighlight(hoveredIdRef.current);
+  }, [applyHighlight, selectedNodeId]);
+
+  useEffect(() => {
+    setBlastRadiusGraph(view.nodes, view.edges);
+  }, [view.nodes, view.edges]);
+
+  useEffect(() => {
+    const root = canvasRef.current;
+    if (!root) return;
+
+    const nodeElements = root.querySelectorAll<HTMLElement>(".react-flow__node");
+    for (const element of nodeElements) {
+      element.classList.remove("routogram-blast-affected");
+    }
+    if (!selectedNodeId) return;
+
+    const blast = computeNodeBlastRadius(selectedNodeId, view.nodes, view.edges);
+    const affected = new Set(blast.upstreamIds);
+    for (const element of nodeElements) {
+      if (affected.has(element.getAttribute("data-id") ?? "")) {
+        element.classList.add("routogram-blast-affected");
+      }
+    }
+
+    return () => {
+      for (const element of nodeElements) {
+        element.classList.remove("routogram-blast-affected");
+      }
+    };
+  }, [selectedNodeId, view.edges, view.nodes]);
+
+  useEffect(() => {
+    const handleToggleHover = (event: Event) => {
+      const detail = (event as CustomEvent<{ nodeId?: unknown; hovered?: unknown }>).detail;
+      if (!detail || typeof detail.nodeId !== "string" || typeof detail.hovered !== "boolean") {
+        return;
+      }
+
+      if (selectedNodeId) {
+        return;
+      }
+
+      if (hoverTimeoutRef.current !== null) {
+        window.clearTimeout(hoverTimeoutRef.current);
+        hoverTimeoutRef.current = null;
+      }
+
+      if (detail.hovered) {
+        hoveredIdRef.current = null;
+        applyHighlight(null);
+        return;
+      }
+
+      hoveredIdRef.current = detail.nodeId;
+      applyHighlight(detail.nodeId);
+    };
+
+    window.addEventListener("routogram:toggle-hover", handleToggleHover);
+    return () => window.removeEventListener("routogram:toggle-hover", handleToggleHover);
   }, [applyHighlight, selectedNodeId]);
 
   useEffect(() => {
@@ -405,6 +492,61 @@ function TopologyCanvasInner({
     }
   }, [remoteViewport, setViewport]);
 
+  useEffect(() => {
+    const handleDiagnosticsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (
+        typeof detail !== "object" ||
+        detail === null ||
+        !("nodes" in detail) ||
+        typeof (detail as { nodes?: unknown }).nodes !== "object"
+      ) {
+        return;
+      }
+      const payload = detail as DiagnosticsUpdatedPayload;
+      setNodes((current) =>
+        current.map((node) => {
+          const external = payload.nodes[node.id]?.diagnostics ?? [];
+          const core = healthByNode[node.id]?.diagnostics ?? [];
+          const health = worstHealth(healthByNode[node.id]?.health ?? "safe", external);
+          const diagnostics = [
+            ...core.map((diagnostic) => ({
+              id: diagnostic.id,
+              severity: diagnostic.severity,
+              message: diagnostic.message,
+            })),
+            ...external.map((diagnostic) => ({
+              id: diagnostic.id,
+              severity: diagnostic.severity,
+              message: diagnostic.message,
+            })),
+          ];
+          if (node.data.health === health && node.data.issueCount === diagnostics.length) {
+            return node;
+          }
+          const classNames = (node.className ?? "")
+            .split(" ")
+            .filter((name) => name && !name.startsWith("routogram-health-"));
+          classNames.push(`routogram-health-${health}`);
+          return {
+            ...node,
+            className: classNames.join(" "),
+            data: {
+              ...node.data,
+              health,
+              diagnostics,
+              issueCount: diagnostics.length,
+            },
+          };
+        }),
+      );
+    };
+
+    window.addEventListener("routogram:diagnostics-updated", handleDiagnosticsUpdated);
+    return () =>
+      window.removeEventListener("routogram:diagnostics-updated", handleDiagnosticsUpdated);
+  }, [healthByNode, setNodes]);
+
   const zoom = useStore((state) => state.transform[2]);
   const lod = zoom < 0.4 ? "minimal" : zoom < 0.7 ? "compact" : "full";
 
@@ -431,7 +573,7 @@ function TopologyCanvasInner({
         positionedView,
         highlightedNodeIds,
         expandedNodeIds,
-        layout.positions,
+        layoutPositionsRef.current,
         handleToggle,
         onSelectNode,
         healthByNode,
@@ -445,7 +587,6 @@ function TopologyCanvasInner({
     handleToggle,
     healthByNode,
     highlightedNodeIds,
-    layout.positions,
     onSelectNode,
     runtime,
     setEdges,
@@ -453,6 +594,14 @@ function TopologyCanvasInner({
     timelineDiff,
     positionedView,
   ]);
+
+  const nodePositions = useMemo(
+    () =>
+      Object.fromEntries(
+        nodes.map((node) => [node.id, { x: node.position.x, y: node.position.y }]),
+      ),
+    [nodes],
+  );
 
   const handleNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
@@ -473,43 +622,46 @@ function TopologyCanvasInner({
     >
       <RuntimeOverlay runtime={runtime} />
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={onNodeClick}
-        onNodeDoubleClick={handleNodeDoubleClick}
-        onNodeMouseEnter={handleNodeMouseEnter}
-        onNodeMouseLeave={handleNodeMouseLeave}
-        onPaneClick={onPaneClick}
-        onMoveEnd={(_event, viewport) => onViewportChange(viewport)}
-        fitView
-        fitViewOptions={{ padding: 0.24 }}
-        defaultEdgeOptions={
-          {
-            type: "smoothstep",
-            pathOptions: { borderRadius: 8 },
-          } as DefaultEdgeOptions
-        }
-        onlyRenderVisibleElements={false}
-        minZoom={0.05}
-        maxZoom={2}
-        colorMode="dark"
-        nodeTypes={NODE_TYPES}
-        className={`bg-(--rg-canvas) routogram-lod-${lod}`}
-      >
-        <Background color="#1e293b" gap={22} size={1} variant={BackgroundVariant.Dots} />
-        <Controls position="bottom-left" showInteractive={false} className="z-20! m-4!" />
-        <MiniMap
-          position="bottom-right"
-          pannable
-          zoomable
-          nodeColor="#334155"
-          maskColor="rgb(7 8 11 / 0.72)"
-          className="h-28! w-44!"
-        />
-      </ReactFlow>
+      <NodePositionsContext.Provider value={nodePositions}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={onNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
+          onNodeMouseEnter={handleNodeMouseEnter}
+          onNodeMouseLeave={handleNodeMouseLeave}
+          onPaneClick={onPaneClick}
+          onMoveEnd={(_event, viewport) => onViewportChange(viewport)}
+          fitView
+          fitViewOptions={{ padding: 0.24 }}
+          defaultEdgeOptions={
+            {
+              type: "step",
+              pathOptions: { borderRadius: 0 },
+            } as DefaultEdgeOptions
+          }
+          onlyRenderVisibleElements={false}
+          minZoom={0.05}
+          maxZoom={2}
+          colorMode="dark"
+          nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
+          className={`bg-(--rg-canvas) routogram-lod-${lod}`}
+        >
+          <Background color="#1e293b" gap={22} size={1} variant={BackgroundVariant.Dots} />
+          <Controls position="bottom-left" showInteractive={false} className="z-20! m-4!" />
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeColor="#334155"
+            maskColor="rgb(7 8 11 / 0.72)"
+            className="h-28! w-44!"
+          />
+        </ReactFlow>
+      </NodePositionsContext.Provider>
 
       {layout.running ? (
         <div className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full border border-sky-400/20 bg-sky-400/10 px-2.5 py-1 text-[10px] text-sky-200 backdrop-blur">
@@ -547,9 +699,22 @@ function buildFlowNodes(
     layerCounts.set(node.layer, row + 1);
     const layerMeta = ROUTOGRAM_LAYER_META[node.layer];
     const typeLabel = nodeTypeLabel(node);
-    const framework = normalizeUIFramework(node.framework);
+    const islandTarget = view.edges.find(
+      (edge) => edge.source === node.id && edge.kind === "renders",
+    );
+    const islandTargetFile = islandTarget
+      ? view.nodes.find((candidate) => candidate.id === islandTarget.target)?.file
+      : undefined;
+    const islandVisual = resolveIslandVisual(node, islandTargetFile);
+    const framework = islandVisual?.framework ?? normalizeUIFramework(node.framework);
     const frameworkBadge =
-      node.kind === "component" || node.kind === "route" || node.kind === "layout"
+      islandVisual ||
+      node.kind === "component" ||
+      node.kind === "ui_component" ||
+      node.kind === "route" ||
+      node.kind === "layout" ||
+      node.kind === "backend_route" ||
+      node.kind === "controller"
         ? FRAMEWORK_BADGE_CONFIG[framework]
         : null;
     const isHighlighted = highlighted?.has(node.id) ?? false;
@@ -561,9 +726,25 @@ function buildFlowNodes(
     const heatColor = runtimeComponent ? runtimeHeatColor(runtimeComponent) : null;
     const isActiveRoute = runtime !== null && node.route === runtime.route;
     const healthEntry = healthByNode[node.id];
-    const health = healthEntry?.health ?? "safe";
+    const cachedDiagnostics = getCachedDiagnostics(node.id);
+    const health = worstHealth(healthEntry?.health ?? "safe", [
+      ...(healthEntry?.diagnostics ?? []),
+      ...cachedDiagnostics,
+    ]);
     const healthMeta = HEALTH_META[health];
-    const issueCount = healthEntry?.diagnostics.length ?? 0;
+    const graphDiagnostics = [
+      ...(healthEntry?.diagnostics ?? []).map((diagnostic) => ({
+        id: diagnostic.id,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+      })),
+      ...cachedDiagnostics.map((diagnostic) => ({
+        id: diagnostic.id,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+      })),
+    ];
+    const issueCount = graphDiagnostics.length;
     const position = positions[node.id] ?? {
       x: LAYER_COLUMN[node.layer] * 300,
       y: row * 120,
@@ -578,12 +759,15 @@ function buildFlowNodes(
       data: {
         health,
         framework,
+        hydration: islandVisual?.hydration ?? null,
         usedStores: node.meta?.usedStores ?? [],
         props: node.meta?.props ?? [],
-        diagnostics: healthEntry?.diagnostics ?? [],
+        diagnostics: graphDiagnostics,
+        issueCount,
         childCount,
         hasOutgoing,
         isExpanded,
+        onSelect: () => onSelectNode(node.id),
         onToggle: () => onToggleRoot(node.id),
         label: (
           <div className="text-left">
@@ -601,11 +785,6 @@ function buildFlowNodes(
                   </span>
                 ) : null}
               </div>
-              <HealthBadge
-                health={health}
-                issueCount={issueCount}
-                onSelect={() => onSelectNode(node.id)}
-              />
             </div>
             <div className="flex items-center justify-between gap-2">
               <span
@@ -653,7 +832,8 @@ function buildFlowNodes(
         color: "#e2e8f0",
         zIndex: 10,
         opacity: dimmed ? 0.2 : 1,
-        transition: "opacity 200ms ease, box-shadow 200ms ease, border-color 200ms ease",
+        transition:
+          "transform 400ms cubic-bezier(0.25, 1, 0.5, 1), opacity 200ms ease, box-shadow 200ms ease, border-color 200ms ease",
       },
     };
   });
@@ -692,43 +872,6 @@ function buildFlowNodes(
   return [...flowNodes, ...ghostNodes];
 }
 
-function HealthBadge({
-  health,
-  issueCount,
-  onSelect,
-}: {
-  health: HealthLevel;
-  issueCount: number;
-  onSelect: () => void;
-}) {
-  if (health === "safe") {
-    return (
-      <span
-        title="No code-health issues"
-        className="nodrag nopan grid size-4 shrink-0 place-items-center rounded-full bg-emerald-400/10 text-emerald-400"
-      >
-        <Check className="size-2.5" strokeWidth={2.5} />
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      title={`${issueCount} code-health issue${issueCount === 1 ? "" : "s"}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect();
-      }}
-      className="nodrag nopan flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[8px] font-medium"
-      style={{ color: HEALTH_META[health].dot, background: `${HEALTH_META[health].dot}1f` }}
-    >
-      <AlertTriangle className="size-2.5" />
-      {issueCount}
-    </button>
-  );
-}
-
 function nodeTypeLabel(node: RoutogramNode): string {
   if (node.kind === "route") {
     return "Page";
@@ -736,11 +879,17 @@ function nodeTypeLabel(node: RoutogramNode): string {
   if (node.kind === "layout") {
     return "Layout";
   }
-  if (node.kind === "component") {
+  if (node.kind === "component" || node.kind === "ui_component") {
     return "Component";
   }
-  if (node.kind === "hook") {
-    return "Hook";
+  if (node.kind === "hook" || node.kind === "composable") {
+    return "Composable";
+  }
+  if (node.kind === "backend_route") {
+    return "Backend Route";
+  }
+  if (node.kind === "controller") {
+    return "Controller";
   }
   if (node.kind === "island") {
     return "Island";
@@ -780,13 +929,13 @@ function buildFlowEdges(edges: RoutogramEdge[], highlightedNodeIds: string[] | n
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      type: "smoothstep",
+      type: "step",
       animated: edge.kind === "dynamic_imports",
       style: {
         stroke: color,
         strokeWidth: 1.5,
         opacity: connected ? 0.8 : 0.12,
-        transition: "opacity 200ms ease",
+        transition: "d 400ms cubic-bezier(0.25, 1, 0.5, 1), opacity 200ms ease",
         strokeDasharray: edge.kind === "dynamic_imports" ? "4 4" : undefined,
       },
       markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },

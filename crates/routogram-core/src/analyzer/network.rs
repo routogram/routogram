@@ -32,6 +32,7 @@ pub struct BoundaryAnalysis {
     pub actions: Vec<ActionDefinition>,
     pub route_definitions: Vec<String>,
     pub vue_routes: Vec<String>,
+    pub backend_routes: Vec<crate::analyzer::plugins::backend::BackendRouteSignal>,
 }
 
 pub fn analyze_boundary_file(
@@ -83,6 +84,7 @@ pub fn analyze_boundary_file(
         } else {
             Vec::new()
         },
+        backend_routes: crate::analyzer::plugins::backend::detect(source),
     })
 }
 

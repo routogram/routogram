@@ -41,6 +41,7 @@ pub struct CachedFramework {
 #[derive(Debug, Default)]
 pub struct ScanCache {
     pub(crate) root: Option<String>,
+    pub(crate) scan_root: Option<String>,
     pub(crate) css: BTreeMap<String, CachedCss>,
     pub(crate) jsx: BTreeMap<String, CachedJsx>,
     pub(crate) boundary: BTreeMap<String, CachedBoundary>,
@@ -53,11 +54,15 @@ impl ScanCache {
         Self::default()
     }
 
-    pub(crate) fn prepare_root(&mut self, root: &Path) {
-        let root = root.display().to_string();
+    pub(crate) fn prepare_roots(&mut self, project_root: &Path, scan_root: &Path) {
+        let project = project_root.display().to_string();
+        let scan = scan_root.display().to_string();
 
-        if self.root.as_deref() != Some(root.as_str()) {
-            self.root = Some(root);
+        if self.root.as_deref() != Some(project.as_str())
+            || self.scan_root.as_deref() != Some(scan.as_str())
+        {
+            self.root = Some(project);
+            self.scan_root = Some(scan);
             self.css.clear();
             self.jsx.clear();
             self.boundary.clear();

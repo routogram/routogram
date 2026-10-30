@@ -7,14 +7,14 @@ export type SimulationRunner = (
 ) => string;
 
 type SimulationRoutesOptions = {
-  root: string;
+  getRoot: () => string;
   getTopology: () => unknown;
   run: SimulationRunner;
   onResult: (result: unknown) => void;
 };
 
 export function createSimulationRoutes({
-  root,
+  getRoot,
   getTopology,
   run,
   onResult,
@@ -22,7 +22,7 @@ export function createSimulationRoutes({
   const app = new Hono();
 
   const simulate = (operations: unknown): unknown => {
-    const raw = run(root, JSON.stringify(getTopology()), JSON.stringify(operations));
+    const raw = run(getRoot(), JSON.stringify(getTopology()), JSON.stringify(operations));
     const result: unknown = JSON.parse(raw);
     onResult(result);
     return result;

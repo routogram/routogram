@@ -35,6 +35,8 @@ export declare function scanGitTimeline(path: string, limit: number): string
 
 export declare function scanWorkspace(path: string): string
 
+export declare function scanWorkspaceWithOptions(path: string, optionsJson: string): string
+
 export declare function searchGraphRag(indexJson: string, query: string, limit: number, filtersJson: string): string
 
 export declare function simulateTopology(path: string, topologyJson: string, operationsJson: string): string

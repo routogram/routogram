@@ -23,6 +23,7 @@ export interface NativeCore {
   coreVersion: () => string;
   scanGitTimeline?: (path: string, limit: number) => string;
   scanWorkspace: (path: string) => string;
+  scanWorkspaceWithOptions?: (path: string, optionsJson: string) => string;
   IncrementalScanner?: new () => NativeScanner;
 }
 

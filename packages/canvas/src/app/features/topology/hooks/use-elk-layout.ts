@@ -13,12 +13,6 @@ export type LayoutPositions = Record<string, LayoutPosition>;
 export const NODE_WIDTH = 280;
 export const NODE_HEIGHT = 96;
 
-type MeasuredNode = RoutogramNode & {
-  width?: number;
-  height?: number;
-  measured?: { width?: number; height?: number };
-};
-
 // The main thread only serializes the graph; ELK computes in the worker.
 // Main thread chỉ tuần tự hóa đồ thị; ELK tính toán trong worker.
 export function useElkLayout(
@@ -30,9 +24,15 @@ export function useElkLayout(
   const elkRef = useRef<ElkInstance | null>(null);
   const requestIdRef = useRef(0);
   const activeRequestRef = useRef(0);
+  const graphKeyRef = useRef("");
   const [positions, setPositions] = useState<LayoutPositions>({});
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const graphKey = `${nodes.map((node) => node.id).join("|")}::${edges
+    .map((edge) => edge.id)
+    .join("|")}`;
+  graphKeyRef.current = graphKey;
 
   useEffect(() => {
     if (!enabled) {
@@ -68,7 +68,9 @@ export function useElkLayout(
       return;
     }
 
+    let cancelled = false;
     const id = ++requestIdRef.current;
+    const requestGraphKey = graphKeyRef.current;
     activeRequestRef.current = id;
     setRunning(true);
     setError(null);
@@ -92,14 +94,11 @@ export function useElkLayout(
           "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
           "elk.padding": "[top=50,left=50,bottom=50,right=50]",
         },
-        children: nodes.map((node) => {
-          const measured = node as MeasuredNode;
-          return {
-            id: node.id,
-            width: measured.measured?.width ?? measured.width ?? NODE_WIDTH,
-            height: measured.measured?.height ?? measured.height ?? NODE_HEIGHT,
-          };
-        }),
+        children: nodes.map((node) => ({
+          id: node.id,
+          width: NODE_WIDTH,
+          height: NODE_HEIGHT,
+        })),
         edges: edges.map((edge) => ({
           id: edge.id,
           sources: [edge.source],
@@ -107,7 +106,11 @@ export function useElkLayout(
         })),
       })
       .then((layout) => {
-        if (id !== activeRequestRef.current) {
+        if (
+          cancelled ||
+          id !== activeRequestRef.current ||
+          requestGraphKey !== graphKeyRef.current
+        ) {
           return;
         }
 
@@ -119,13 +122,21 @@ export function useElkLayout(
         setRunning(false);
       })
       .catch((layoutError: unknown) => {
-        if (id !== activeRequestRef.current) {
+        if (
+          cancelled ||
+          id !== activeRequestRef.current ||
+          requestGraphKey !== graphKeyRef.current
+        ) {
           return;
         }
 
         setRunning(false);
         setError(layoutError instanceof Error ? layoutError.message : String(layoutError));
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [edges, enabled, nodes]);
 
   return { positions, running, error };

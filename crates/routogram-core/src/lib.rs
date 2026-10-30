@@ -162,6 +162,33 @@ pub fn scan_git_timeline(path: String, limit: u32) -> Result<String> {
 
 #[cfg(feature = "napi")]
 #[napi]
+pub fn scan_workspace_with_options(path: String, options_json: String) -> Result<String> {
+    #[derive(serde::Deserialize, Default)]
+    #[serde(rename_all = "camelCase")]
+    struct ScanOptions {
+        project_root: Option<String>,
+        scan_root: Option<String>,
+        #[allow(dead_code)]
+        cache_dir: Option<String>,
+    }
+
+    let options: ScanOptions = serde_json::from_str(&options_json).unwrap_or_default();
+    let scan_root = canonical_workspace(options.scan_root.as_deref().unwrap_or(&path))?;
+    let project_root = canonical_workspace(
+        options
+            .project_root
+            .as_deref()
+            .unwrap_or_else(|| scan_root.to_str().unwrap_or(&path)),
+    )?;
+    let topology = analyzer::scan_paths(&project_root, &scan_root, iso8601_now())
+        .map_err(napi::Error::from_reason)?;
+
+    serde_json::to_string(&topology)
+        .map_err(|error| napi::Error::from_reason(format!("Failed to serialize topology: {error}")))
+}
+
+#[cfg(feature = "napi")]
+#[napi]
 pub fn scan_workspace(path: String) -> Result<String> {
     let root = canonical_workspace(&path)?;
     let topology = analyzer::scan(&root, iso8601_now()).map_err(napi::Error::from_reason)?;

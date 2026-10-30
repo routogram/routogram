@@ -2,9 +2,9 @@ import type { AiConfig } from "@routogram/types";
 import { Hono } from "hono";
 
 type ConfigRouteOptions = {
-  raw: Record<string, unknown>;
-  ai?: AiConfig;
-  configPath?: string | null;
+  getRaw: () => Record<string, unknown>;
+  getAi: () => AiConfig | undefined;
+  getConfigPath: () => string | null;
 };
 
 const SECRET_KEY = /(api[-_]?key|secret|password|access[-_]?token|auth[-_]?token)/i;
@@ -40,11 +40,12 @@ function maskSecret(value: string): string {
   return `${value.slice(0, 3)}...${value.slice(-4)}`;
 }
 
-export function createConfigRoutes({ raw, ai, configPath = null }: ConfigRouteOptions): Hono {
+export function createConfigRoutes({ getRaw, getAi, getConfigPath }: ConfigRouteOptions): Hono {
   const app = new Hono();
 
-  app.get("/ai", (context) =>
-    context.json({
+  app.get("/ai", (context) => {
+    const ai = getAi();
+    return context.json({
       default: ai?.default ?? null,
       providers: (ai?.providers ?? []).map((provider) => ({
         id: provider.id,
@@ -55,14 +56,14 @@ export function createConfigRoutes({ raw, ai, configPath = null }: ConfigRouteOp
         defaultEffort: provider.defaultEffort ?? null,
         hasApiKey: Boolean(provider.apiKey),
       })),
-      configPath,
-    }),
-  );
+      configPath: getConfigPath(),
+    });
+  });
 
   app.get("/", (context) =>
     context.json({
-      config: sanitizeConfigSecrets(raw),
-      configPath,
+      config: sanitizeConfigSecrets(getRaw()),
+      configPath: getConfigPath(),
     }),
   );
 

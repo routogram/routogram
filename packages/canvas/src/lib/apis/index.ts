@@ -28,6 +28,14 @@ export { type CodeHealthReport, fetchCodeHealth } from "./health";
 export { type OpenInEditorInput, type OpenInEditorResult, openInEditor } from "./ide";
 export type { AiResponseMeta, AiSettings } from "./models/ai.model";
 export {
+  cacheDiagnostics,
+  fetchPlugins,
+  getCachedDiagnostics,
+  installPlugin,
+  type PluginsResponse,
+  triggerDiagnosticsScan,
+} from "./plugins";
+export {
   applyRefactor,
   previewRefactor,
   type RefactorFile,
@@ -44,3 +52,13 @@ export {
   scanMigration,
 } from "./simulation";
 export { fetchTimeline, fetchTopology } from "./topology";
+export {
+  activateWorkspace,
+  addWorkspace,
+  fetchWorkspaceRegistry,
+  inspectWorkspacePath,
+  listServerDirectories,
+  pickWorkspaceDirectory,
+  removeWorkspace,
+  rescanWorkspace,
+} from "./workspaces";

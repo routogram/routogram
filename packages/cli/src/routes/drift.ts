@@ -7,10 +7,10 @@ import { Hono } from "hono";
 const execFileAsync = promisify(execFile);
 
 type DriftRoutesOptions = {
-  root: string;
+  getRoot: () => string;
 };
 
-export function createDriftRoutes({ root }: DriftRoutesOptions): Hono {
+export function createDriftRoutes({ getRoot }: DriftRoutesOptions): Hono {
   const app = new Hono();
 
   app.post("/heal", async (context) => {
@@ -30,6 +30,7 @@ export function createDriftRoutes({ root }: DriftRoutesOptions): Hono {
         400,
       );
     }
+    const root = getRoot();
     const files = payload.files
       .filter((file): file is string => typeof file === "string" && file.length > 0)
       .map((file) => resolve(root, file))

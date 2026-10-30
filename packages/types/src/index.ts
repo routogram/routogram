@@ -43,9 +43,16 @@ export const ROUTOGRAM_LAYER_META: Record<RoutogramNodeLayer, RoutogramLayerMeta
 
 export const ROUTOGRAM_NODE_KINDS_BY_LAYER = {
   macro: ["route", "layout"],
-  meso: ["component", "hook", "island"],
+  meso: ["component", "ui_component", "hook", "composable", "island"],
   micro: ["style", "token"],
-  boundary: ["api_endpoint", "api_client", "server_action", "middleware"],
+  boundary: [
+    "api_endpoint",
+    "api_client",
+    "server_action",
+    "middleware",
+    "backend_route",
+    "controller",
+  ],
 } as const satisfies Record<RoutogramNodeLayer, readonly string[]>;
 
 // Component runtime distinguishes server, client, and directive-less universal components.
@@ -83,6 +90,39 @@ export const ROUTOGRAM_RUNTIME_META: Record<RoutogramRuntime, RoutogramRuntimeMe
 type NodeKindsByLayer = typeof ROUTOGRAM_NODE_KINDS_BY_LAYER;
 
 export type RoutogramNodeKind = NodeKindsByLayer[RoutogramNodeLayer][number];
+
+// Unified, framework-agnostic aliases. Legacy kinds remain readable so
+// existing snapshots and the React adapter keep rendering unchanged.
+export type UiComponentNodeKind = "ui_component" | "component";
+export type ComposableNodeKind = "composable" | "hook";
+export type BackendRouteNodeKind = "backend_route";
+export type ControllerNodeKind = "controller";
+
+export const ROUTOGRAM_FRAMEWORK_TAGS = [
+  "react",
+  "vue",
+  "astro",
+  "svelte",
+  "hono",
+  "nest",
+  "express",
+  "vanilla",
+] as const;
+
+export type RoutogramFrameworkTag = (typeof ROUTOGRAM_FRAMEWORK_TAGS)[number] | string;
+
+export type NodeFramework =
+  | "react"
+  | "next"
+  | "vue"
+  | "nuxt"
+  | "astro"
+  | "svelte"
+  | "hono"
+  | "nestjs"
+  | "ts";
+
+export type StoreKind = "zustand" | "pinia" | "nanostores" | "custom";
 
 // Edges encode only the architectural relationships the scanner can prove.
 // Edge chỉ mã hóa các quan hệ kiến trúc mà bộ quét chứng minh được.
@@ -169,14 +209,18 @@ export interface ComponentPropMeta {
   optional: boolean;
 }
 
-export interface NodeDataFlowMeta {
+export type NodeDataFlowMeta = {
   providers: string[];
   dataRole: "fetcher" | "passive";
   fetchSignals: string[];
   reRenderSurfaceCount: number;
-}
+  sideEffects?: string[];
+  stateManagement?: string[];
+};
 
 export interface RoutogramNodeMeta {
+  framework?: NodeFramework;
+  storeKind?: StoreKind;
   isServerComponent?: boolean;
   isDynamic?: boolean;
   isIsland?: boolean;
@@ -187,6 +231,52 @@ export interface RoutogramNodeMeta {
   usedStores?: string[];
   props?: ComponentPropMeta[];
 }
+
+export type WorkspaceStatus = "idle" | "scanning" | "error";
+
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  projectRoot: string;
+  scanPath: string;
+  framework?: string;
+  lastScannedAt?: string;
+  nodeCount?: number;
+  edgeCount?: number;
+  status: WorkspaceStatus;
+  errorMessage?: string;
+};
+
+export type WorkspaceRegistry = {
+  version: 1;
+  activeWorkspaceId: string | null;
+  workspaces: Record<string, WorkspaceSummary>;
+};
+
+export type PickDirectoryResult = {
+  path: string | null;
+  canceled: boolean;
+  supported: boolean;
+};
+
+export type DirectoryEntry = {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  hasPackageJson: boolean;
+  hasSrcDir: boolean;
+};
+
+export type PathInspectionResult = {
+  valid: boolean;
+  exists: boolean;
+  projectRoot: string;
+  scanPath: string;
+  hasSrcSubdir: boolean;
+  detectedFramework?: string;
+  suggestedName: string;
+  error?: string;
+};
 
 export interface RoutogramWorkspacePackage {
   name: string;
@@ -395,13 +485,15 @@ export type RoutogramTimeline = {
   steps: RoutogramTimelineStep[];
 };
 
-export type RoutogramServerEvent =
+export type RoutogramServerEvent = (
   | { type: "topology:snapshot"; topology: RoutogramTopology }
   | { type: "PATCH_TOPOLOGY"; payload: RoutogramTopologyPatch }
   | { type: "FOCUS_NODE"; payload: RoutogramFocusPayload }
   | { type: "RUNTIME_UPDATE"; payload: RoutogramRuntimeSnapshot }
   | { type: "CRITICAL_DRIFT_DETECTED"; payload: RoutogramDriftPayload }
-  | { type: "topology:invalidate"; at: string };
+  | { type: "topology:invalidate"; at: string }
+  | DiagnosticsUpdatedPayload
+) & { workspaceId?: string | null };
 
 export type RoutogramDriftFinding = {
   id: string;
@@ -642,3 +734,56 @@ export interface RoutogramLintSummary {
   configPath: string | null;
   filesScanned: number;
 }
+
+export type DiagnosticSource = "core" | "security" | "biome" | "eslint" | "oxlint" | "plugin";
+
+export type ExternalDiagnostic = {
+  id: string;
+  ruleId: string;
+  source: DiagnosticSource;
+  severity: "info" | "warning" | "error";
+  message: string;
+  filePath: string;
+  line?: number;
+  column?: number;
+  suggestion?: string;
+};
+
+export type PluginKind = "linter" | "framework" | "security";
+
+export type PluginManifest = {
+  id: string;
+  name: string;
+  version: string;
+  kind: PluginKind;
+  description: string;
+  supportedFrameworks?: string[];
+  configFiles?: string[];
+  entryPoint?: string;
+  installed: boolean;
+  enabled: boolean;
+};
+
+export type PluginRegistryState = {
+  version: 1;
+  installed: Record<string, PluginManifest>;
+};
+
+export type LinterDetectionResult = {
+  workspaceId: string;
+  detectedLinters: Array<"biome" | "eslint" | "oxlint">;
+  recommendedPlugins: string[];
+};
+
+export type DiagnosticsUpdatedPayload = {
+  type: "diagnostics_updated";
+  workspaceId: string;
+  generatedAt: string;
+  nodes: Record<
+    string,
+    {
+      health: "safe" | "tidy" | "warning" | "danger";
+      diagnostics: ExternalDiagnostic[];
+    }
+  >;
+};

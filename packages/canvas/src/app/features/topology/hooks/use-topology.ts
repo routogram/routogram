@@ -1,5 +1,6 @@
 import {
   applyTopologyPatch,
+  type DiagnosticsUpdatedPayload,
   isRoutogramRuntimeSnapshot,
   isRoutogramTopology,
   type RoutogramDriftFinding,
@@ -9,11 +10,11 @@ import {
 } from "@routogram/types";
 import { useEffect, useRef, useState } from "react";
 
-import { fetchTopology } from "@/lib/apis";
+import { cacheDiagnostics, fetchTopology } from "@/lib/apis";
 import { API, daemonWebSocketUrl } from "@/lib/constants";
 import type { ConnectionStatus, FocusRequest } from "../types/topology";
 
-export function useTopology() {
+export function useTopology(workspaceId: string | null = null) {
   const embedded =
     typeof window.__ROUTOGRAM_DATA__ !== "undefined" &&
     isRoutogramTopology(window.__ROUTOGRAM_DATA__)
@@ -26,11 +27,20 @@ export function useTopology() {
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const [runtimeSnapshot, setRuntimeSnapshot] = useState<RoutogramRuntimeSnapshot | null>(null);
   const [driftFindings, setDriftFindings] = useState<RoutogramDriftFinding[]>([]);
+  const [codeHealth, setCodeHealth] = useState<DiagnosticsUpdatedPayload["nodes"] | null>(null);
 
   useEffect(() => {
     if (isStatic) {
       return;
     }
+    if (!workspaceId) {
+      setTopology(null);
+      setStatus("empty");
+      return;
+    }
+    setRuntimeSnapshot(null);
+    setDriftFindings([]);
+    setCodeHealth(null);
 
     let cancelled = false;
     let socket: WebSocket | null = null;
@@ -71,6 +81,9 @@ export function useTopology() {
       socket.addEventListener("message", (event) => {
         try {
           const message = JSON.parse(String(event.data)) as RoutogramServerEvent;
+          if (message.workspaceId && message.workspaceId !== workspaceId) {
+            return;
+          }
 
           if (message.type === "topology:snapshot") {
             applyTopology(message.topology);
@@ -91,6 +104,12 @@ export function useTopology() {
               nonce: focusNonceRef.current,
             });
             setStatus("online");
+          } else if (message.type === "diagnostics_updated") {
+            setCodeHealth((current) => ({ ...(current ?? {}), ...message.nodes }));
+            cacheDiagnostics(message.nodes);
+            window.dispatchEvent(
+              new CustomEvent("routogram:diagnostics-updated", { detail: message }),
+            );
           } else if (message.type === "CRITICAL_DRIFT_DETECTED") {
             setDriftFindings(message.payload.findings);
           } else if (message.type === "topology:invalidate") {
@@ -132,7 +151,7 @@ export function useTopology() {
         clearTimeout(reconnectTimer);
       }
     };
-  }, [isStatic]);
+  }, [isStatic, workspaceId]);
 
   return {
     topology,
@@ -141,6 +160,7 @@ export function useTopology() {
     focusRequest,
     runtimeSnapshot,
     driftFindings,
+    codeHealth,
     clearDrift: () => setDriftFindings([]),
   };
 }

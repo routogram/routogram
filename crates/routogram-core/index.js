@@ -846,5 +846,6 @@ module.exports.runMigration = nativeBinding.runMigration
 module.exports.scanFederation = nativeBinding.scanFederation
 module.exports.scanGitTimeline = nativeBinding.scanGitTimeline
 module.exports.scanWorkspace = nativeBinding.scanWorkspace
+module.exports.scanWorkspaceWithOptions = nativeBinding.scanWorkspaceWithOptions
 module.exports.searchGraphRag = nativeBinding.searchGraphRag
 module.exports.simulateTopology = nativeBinding.simulateTopology

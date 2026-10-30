@@ -48,6 +48,12 @@ pub fn analyze(relative: &str, source: &str) -> FrameworkAnalysis {
         islands: Vec::new(),
         middleware,
         imports: import_sources(source),
+        side_effects: Vec::new(),
+        state_management: Vec::new(),
+        has_style_block: false,
+        script_line: 1,
+        props: Vec::new(),
+        used_stores: Vec::new(),
     }
 }
 

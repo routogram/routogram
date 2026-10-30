@@ -17,11 +17,25 @@ export function getRootNodeIds(topology: RoutogramTopology): string[] {
     .filter((node) => !incomingLayoutTargets.has(node.id))
     .map((node) => node.id);
 
+  const incomingNodeIds = new Set(topology.edges.map((edge) => edge.target));
+  const backendRoots = topology.nodes
+    .filter(
+      (node) =>
+        (node.kind === "backend_route" || node.kind === "controller") &&
+        !incomingNodeIds.has(node.id),
+    )
+    .map((node) => node.id);
+  const appendBackendRoots = (roots: string[]): string[] => [
+    ...new Set([...roots, ...backendRoots]),
+  ];
+
   if (macroRoots.length > 0) {
-    return macroRoots;
+    return appendBackendRoots(macroRoots);
   }
 
-  const components = topology.nodes.filter((node) => node.kind === "component");
+  const components = topology.nodes.filter(
+    (node) => node.kind === "component" || node.kind === "ui_component",
+  );
   const incomingRenders = new Set(
     topology.edges.filter((edge) => edge.kind === "renders").map((edge) => edge.target),
   );
@@ -30,15 +44,15 @@ export function getRootNodeIds(topology: RoutogramTopology): string[] {
     .map((node) => node.id);
   const roots = [...macroNodes.map((node) => node.id), ...componentRoots];
 
-  if (roots.length > 0) {
-    return roots;
+  if (roots.length > 0 || backendRoots.length > 0) {
+    return appendBackendRoots(roots);
   }
 
   const fallback = topology.nodes
     .filter((node) => node.layer === "macro" || node.layer === "meso")
     .map((node) => node.id);
 
-  return fallback.length > 0 ? fallback : topology.nodes.map((node) => node.id);
+  return fallback.length > 0 ? appendBackendRoots(fallback) : topology.nodes.map((node) => node.id);
 }
 
 export function buildTopologyView(
@@ -57,19 +71,25 @@ export function buildTopologyView(
 
   const childCounts = new Map<string, number>();
   const nodeById = new Map(topology.nodes.map((node) => [node.id, node]));
-  const visible = new Set(rootIds);
+  const structuralChildren = new Map<string, Set<string>>();
+  const structuralKinds = new Set(["routes_to", "renders", "dynamic_imports", "cross_package"]);
+
+  for (const edge of topology.edges) {
+    if (!structuralKinds.has(edge.kind) || !nodeById.has(edge.target)) {
+      continue;
+    }
+    const children = structuralChildren.get(edge.source) ?? new Set<string>();
+    if (edge.target !== edge.source) {
+      children.add(edge.target);
+    }
+    structuralChildren.set(edge.source, children);
+  }
 
   for (const node of topology.nodes) {
-    childCounts.set(
-      node.id,
-      (adjacency.get(node.id) ?? []).filter((childId) => {
-        const child = nodeById.get(childId);
-        return node.kind === "component"
-          ? child?.kind === "component"
-          : child?.kind === "layout" || child?.kind === "route";
-      }).length,
-    );
+    childCounts.set(node.id, structuralChildren.get(node.id)?.size ?? 0);
   }
+
+  const visible = new Set(rootIds);
 
   for (const rootId of rootIds) {
     if (!expandedRootIds.has(rootId) || collapsedNodeIds.has(rootId)) {

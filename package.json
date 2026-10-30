@@ -11,7 +11,7 @@
     "pnpm": ">=12.14.0"
   },
   "scripts": {
-    "dev": "pnpm build:types && pnpm build:native:debug && pnpm build:cloud && pnpm build:client && pnpm --parallel --filter routogram --filter @routogram/canvas dev",
+    "dev": "pnpm build:types && pnpm build:native:debug && pnpm build:cloud && pnpm build:client && node scripts/dev.mjs",
     "routogram": "node packages/cli/bin/routogram.js",
     "dev:cli": "pnpm --filter @routogram/cloud-sync build && pnpm --filter routogram dev",
     "dev:canvas": "pnpm --filter @routogram/canvas dev",
@@ -27,6 +27,10 @@
     "build:lsp": "cargo build --release --bin routogram-lsp --no-default-features --features lsp-cli && node scripts/copy-lsp.mjs",
     "build:canvas": "pnpm --filter @routogram/canvas build && node scripts/copy-canvas.mjs",
     "build:canvas-bundle": "node scripts/copy-canvas.mjs",
+    "bundle:daemon": "node scripts/bundle-desktop-daemon.mjs",
+    "dev:nest": "pnpm --filter nest-orders start:dev",
+    "dev:desktop": "pnpm bundle:daemon && cargo run --manifest-path crates/routogram-desktop/Cargo.toml",
+    "build:desktop": "pnpm build && node scripts/bundle-desktop-daemon.mjs && cargo build --release --manifest-path crates/routogram-desktop/Cargo.toml",
     "typecheck": "pnpm build:types && pnpm build:cloud && pnpm build:plugins && pnpm -r --filter \"./packages/**\" exec tsc --noEmit",
     "test": "pnpm test:rust",
     "test:rust": "cargo test --workspace --lib",
@@ -34,7 +38,7 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "clean": "node scripts/clean.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm build",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test",
     "postinstall": "pnpm build:types && pnpm build:cloud && pnpm build:plugins",
     "build:plugins": "pnpm --filter @routogram/plugin-core build && pnpm --filter @routogram/plugin-react build && pnpm --filter @routogram/plugin-next build && pnpm --filter @routogram/plugin-vue build"
   },

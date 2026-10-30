@@ -1,7 +1,11 @@
+mod ast_helpers;
 mod cache;
+pub(crate) mod extractors;
 pub mod matcher;
 mod network;
+pub mod plugins;
 mod routes;
+pub mod sfc_extractor;
 
 pub use cache::ScanCache;
 
@@ -56,9 +60,18 @@ struct PendingImport {
 }
 
 pub fn scan(root: &Path, generated_at: String) -> Result<Topology, String> {
+    scan_paths(root, root, generated_at)
+}
+
+pub fn scan_paths(
+    project_root: &Path,
+    scan_root: &Path,
+    generated_at: String,
+) -> Result<Topology, String> {
     let mut cache = ScanCache::new();
 
-    scan_cached(root, generated_at, &mut cache)
+    scan_internal(project_root, scan_root, generated_at, &mut cache, None)
+        .map(|(topology, _)| topology)
 }
 
 pub fn scan_cached(
@@ -66,7 +79,7 @@ pub fn scan_cached(
     generated_at: String,
     cache: &mut ScanCache,
 ) -> Result<Topology, String> {
-    scan_internal(root, generated_at, cache, None).map(|(topology, _)| topology)
+    scan_internal(root, root, generated_at, cache, None).map(|(topology, _)| topology)
 }
 
 pub fn update_cached(
@@ -75,21 +88,24 @@ pub fn update_cached(
     cache: &mut ScanCache,
     changed_paths: &BTreeSet<String>,
 ) -> Result<(Topology, TopologyPatch), String> {
-    scan_internal(root, generated_at, cache, Some(changed_paths))
+    scan_internal(root, root, generated_at, cache, Some(changed_paths))
 }
 
 fn scan_internal(
-    root: &Path,
+    project_root: &Path,
+    scan_root: &Path,
     generated_at: String,
     cache: &mut ScanCache,
     changed_paths: Option<&BTreeSet<String>>,
 ) -> Result<(Topology, TopologyPatch), String> {
     let started = Instant::now();
-    cache.prepare_root(root);
-    let workspace = Workspace::resolve(root);
+    let root = project_root;
+    cache.prepare_roots(project_root, scan_root);
+    let workspace = Workspace::resolve(project_root);
 
     let mut warnings = workspace.warnings.clone();
-    let (css_files, jsx_files, boundary_files, framework_files) = discover_files(root);
+    let (css_files, jsx_files, boundary_files, framework_files) =
+        discover_files(project_root, scan_root);
     let force_changed = |relative: &str| {
         changed_paths.is_some_and(|paths| {
             paths.contains(relative) || paths.contains(&relative.replace('/', "\\"))
@@ -101,7 +117,7 @@ fn scan_internal(
     let mut next_css = BTreeMap::new();
 
     for path in &css_files {
-        let Some(relative) = relative_path(root, path) else {
+        let Some(relative) = relative_path(project_root, path) else {
             continue;
         };
         let fingerprint = file_fingerprint(path);
@@ -292,7 +308,7 @@ fn scan_internal(
         }
     }
 
-    let (boundary_nodes, route_records, action_index) =
+    let (boundary_nodes, route_records, action_index, boundary_edges) =
         assemble_boundaries(&boundary_analyses, &workspace);
     let (components, edges) = assemble_components(
         &jsx_analyses,
@@ -344,6 +360,7 @@ fn scan_internal(
     });
 
     let mut edges = edges;
+    edges.extend(boundary_edges);
     edges.extend(route_edges);
     edges.extend(framework_edges);
     edges.extend(tanstack_edges);
@@ -351,6 +368,7 @@ fn scan_internal(
     edges.sort_by(|left, right| left.id.cmp(&right.id));
 
     attach_data_flow(&mut nodes, &edges, &jsx_analyses);
+    attach_framework_metadata(&mut nodes);
 
     let mut scanned_files = BTreeSet::new();
     scanned_files.extend(css_analyses.keys().cloned());
@@ -463,7 +481,7 @@ fn assemble_framework_nodes(
             nodes.push(Node {
                 id: component_id.clone(),
                 layer: "meso".to_string(),
-                kind: "component".to_string(),
+                kind: "ui_component".to_string(),
                 name: analysis
                     .component_name
                     .clone()
@@ -487,19 +505,32 @@ fn assemble_framework_nodes(
                     column: 1,
                 }),
                 meta: Some(NodeMeta {
+                    framework: None,
+                    store_kind: None,
                     is_server_component: Some(framework == "astro"),
                     is_dynamic: None,
                     is_island: None,
                     hydration: None,
                     style_metrics: None,
                     network_calls: None,
-                    data_flow: None,
-                    used_stores: None,
-                    props: None,
+                    data_flow: Some(NodeDataFlowMeta {
+                        providers: Vec::new(),
+                        data_role: "passive".to_string(),
+                        fetch_signals: Vec::new(),
+                        re_render_surface_count: 0,
+                        side_effects: analysis.side_effects.clone(),
+                        state_management: analysis.state_management.clone(),
+                    }),
+                    used_stores: (!analysis.used_stores.is_empty())
+                        .then_some(analysis.used_stores.clone()),
+                    props: (!analysis.props.is_empty()).then_some(analysis.props.clone()),
                 }),
                 metadata: Some(BTreeMap::from([
                     ("fileRole".to_string(), json!(role)),
                     ("framework".to_string(), json!(framework)),
+                    ("unifiedKind".to_string(), json!("UiComponent")),
+                    ("hasStyleBlock".to_string(), json!(analysis.has_style_block)),
+                    ("scriptLine".to_string(), json!(analysis.script_line)),
                 ])),
             });
 
@@ -583,6 +614,8 @@ fn assemble_framework_nodes(
                             column: 1,
                         }),
                         meta: Some(NodeMeta {
+                            framework: None,
+                            store_kind: None,
                             is_server_component: Some(false),
                             is_dynamic: None,
                             is_island: Some(true),
@@ -596,6 +629,7 @@ fn assemble_framework_nodes(
                         metadata: Some(BTreeMap::from([
                             ("island".to_string(), json!(true)),
                             ("hydration".to_string(), json!(island.hydration)),
+                            ("source".to_string(), json!(island.source)),
                         ])),
                     });
                     edges.push(Edge {
@@ -864,7 +898,7 @@ fn assemble_vue_router_nodes(
 fn attach_data_flow(nodes: &mut [Node], edges: &[Edge], analyses: &BTreeMap<String, JsxAnalysis>) {
     let component_ids = nodes
         .iter()
-        .filter(|node| node.kind == "component")
+        .filter(|node| node.kind == "component" || node.kind == "ui_component")
         .map(|node| node.id.clone())
         .collect::<BTreeSet<_>>();
     let mut adjacency: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -896,6 +930,8 @@ fn attach_data_flow(nodes: &mut [Node], edges: &[Edge], analyses: &BTreeMap<Stri
                 &adjacency,
                 &component_ids,
             ),
+            side_effects: analysis.side_effects.clone(),
+            state_management: analysis.state_management.clone(),
         });
         if !analysis.used_stores.is_empty() {
             meta.used_stores = Some(analysis.used_stores.clone());
@@ -903,6 +939,52 @@ fn attach_data_flow(nodes: &mut [Node], edges: &[Edge], analyses: &BTreeMap<Stri
         if !analysis.props.is_empty() {
             meta.props = Some(analysis.props.clone());
         }
+    }
+}
+
+fn attach_framework_metadata(nodes: &mut [Node]) {
+    for node in nodes {
+        let meta = node.meta.get_or_insert_with(NodeMeta::default);
+        let framework = normalize_node_framework(node.framework.as_deref(), &node.file);
+        meta.framework = Some(framework.to_string());
+
+        let state = meta
+            .data_flow
+            .as_ref()
+            .map(|flow| flow.state_management.clone())
+            .unwrap_or_default();
+        meta.store_kind = if state.iter().any(|value| value == "Pinia") {
+            Some("pinia".to_string())
+        } else if state.iter().any(|value| value == "Zustand") {
+            Some("zustand".to_string())
+        } else if state.iter().any(|value| value == "Nano Stores") {
+            Some("nanostores".to_string())
+        } else if meta
+            .used_stores
+            .as_ref()
+            .is_some_and(|stores| !stores.is_empty())
+        {
+            Some("custom".to_string())
+        } else {
+            None
+        };
+    }
+}
+
+fn normalize_node_framework(framework: Option<&str>, file: &str) -> &'static str {
+    match framework.unwrap_or_default().to_lowercase().as_str() {
+        "next" | "nextjs" => "next",
+        "react" | "tanstack" => "react",
+        "vue" => "vue",
+        "nuxt" => "nuxt",
+        "astro" => "astro",
+        "svelte" | "sveltekit" => "svelte",
+        "hono" => "hono",
+        "nest" | "nestjs" | "express" => "nestjs",
+        _ if file.ends_with(".vue") => "vue",
+        _ if file.ends_with(".astro") => "astro",
+        _ if file.ends_with(".svelte") => "svelte",
+        _ => "ts",
     }
 }
 
@@ -998,12 +1080,90 @@ fn framework_name(analysis: &FrameworkAnalysis, workspace: &Workspace) -> String
 fn assemble_boundaries(
     boundary_analyses: &BTreeMap<String, network::BoundaryAnalysis>,
     workspace: &Workspace,
-) -> (Vec<Node>, Vec<RouteRecord>, BTreeMap<String, Vec<String>>) {
+) -> (
+    Vec<Node>,
+    Vec<RouteRecord>,
+    BTreeMap<String, Vec<String>>,
+    Vec<Edge>,
+) {
     let mut boundary_nodes = Vec::new();
+    let mut boundary_edges = Vec::new();
     let mut route_map: BTreeMap<String, RouteAccumulator> = BTreeMap::new();
     let mut action_index: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut backend_node_ids = BTreeSet::new();
 
     for (relative, analysis) in boundary_analyses {
+        for route in &analysis.backend_routes {
+            let route_id = format!(
+                "backend:{}:{}:{}:{}",
+                relative, route.method, route.path, route.line
+            );
+            if !backend_node_ids.insert(route_id.clone()) {
+                continue;
+            }
+
+            boundary_nodes.push(Node {
+                id: route_id.clone(),
+                layer: "boundary".to_string(),
+                kind: "backend_route".to_string(),
+                name: format!("{} {}", route.method, route.path),
+                file: relative.clone(),
+                package: workspace.package_for_file(relative),
+                route: Some(route.path.clone()),
+                symbol: None,
+                framework: Some(route.framework.clone()),
+                runtime: Some("server".to_string()),
+                source: Some(Source {
+                    file: relative.clone(),
+                    line: route.line,
+                    column: 1,
+                }),
+                meta: None,
+                metadata: Some(BTreeMap::from([
+                    ("unifiedKind".to_string(), json!("BackendRoute")),
+                    ("method".to_string(), json!(route.method)),
+                    ("framework".to_string(), json!(route.framework)),
+                ])),
+            });
+
+            if let Some(controller) = &route.controller {
+                let controller_id = format!("controller:{}:{}", relative, controller);
+                if backend_node_ids.insert(controller_id.clone()) {
+                    boundary_nodes.push(Node {
+                        id: controller_id.clone(),
+                        layer: "boundary".to_string(),
+                        kind: "controller".to_string(),
+                        name: controller.clone(),
+                        file: relative.clone(),
+                        package: workspace.package_for_file(relative),
+                        route: None,
+                        symbol: Some(controller.clone()),
+                        framework: Some("nest".to_string()),
+                        runtime: Some("server".to_string()),
+                        source: Some(Source {
+                            file: relative.clone(),
+                            line: 1,
+                            column: 1,
+                        }),
+                        meta: None,
+                        metadata: Some(BTreeMap::from([(
+                            "unifiedKind".to_string(),
+                            json!("Controller"),
+                        )])),
+                    });
+                }
+
+                boundary_edges.push(Edge {
+                    id: format!("exposes:{}:{}", controller_id, route_id),
+                    kind: "exposes".to_string(),
+                    source: controller_id,
+                    target: route_id,
+                    label: None,
+                    metadata: None,
+                });
+            }
+        }
+
         if let Some(route) = &analysis.route {
             let entry = route_map
                 .entry(route.path.clone())
@@ -1068,7 +1228,7 @@ fn assemble_boundaries(
         });
     }
 
-    (boundary_nodes, route_records, action_index)
+    (boundary_nodes, route_records, action_index, boundary_edges)
 }
 
 fn component_file_type(relative: &str) -> &'static str {
@@ -1307,6 +1467,8 @@ fn assemble_components(
                 column: analysis.source_column,
             }),
             meta: Some(NodeMeta {
+                framework: None,
+                store_kind: None,
                 is_server_component: match component_type {
                     "server" => Some(true),
                     "client" => Some(false),
@@ -1737,7 +1899,8 @@ fn build_style_metrics(
 }
 
 fn discover_files(
-    root: &Path,
+    project_root: &Path,
+    scan_root: &Path,
 ) -> (
     Vec<PathBuf>,
     Vec<SourceFile>,
@@ -1749,7 +1912,7 @@ fn discover_files(
     let mut boundary_files = Vec::new();
     let mut framework_files = Vec::new();
 
-    let walker = WalkBuilder::new(root)
+    let walker = WalkBuilder::new(scan_root)
         .hidden(true)
         .git_ignore(true)
         .git_global(true)
@@ -1775,7 +1938,7 @@ fn discover_files(
             continue;
         }
 
-        let Some(relative) = relative_path(root, path) else {
+        let Some(relative) = relative_path(project_root, path) else {
             continue;
         };
 
@@ -1920,6 +2083,128 @@ mod analyzer_tests {
             component_file_type("src/app/[locale]/_components/hero-banner/skeleton.tsx"),
             "skeleton"
         );
+    }
+
+    #[test]
+    fn extracts_vue_lifecycle_and_state_signals() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!("routogram-vue-{suffix}"));
+        let source_dir = root.join("src/components");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"vue-fixture","dependencies":{"vue":"^3"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            source_dir.join("Counter.vue"),
+            r#"<script setup lang="ts">
+import { ref, watch, onMounted } from "vue";
+const props = defineProps<{ title: string; count?: number }>();
+const count = ref(0);
+watch(count, () => {});
+onMounted(() => {});
+</script>
+<template><div>{{ count }}</div></template>
+"#,
+        )
+        .unwrap();
+
+        let topology = scan_paths(&root, &root, "test".to_string()).unwrap();
+        let component = topology
+            .nodes
+            .iter()
+            .find(|node| node.framework.as_deref() == Some("vue"))
+            .expect("Vue component node");
+        assert_eq!(component.kind, "ui_component");
+        let data_flow = component
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.data_flow.as_ref())
+            .unwrap();
+        assert!(data_flow.side_effects.contains(&"watch".to_string()));
+        assert!(data_flow.side_effects.contains(&"onMounted".to_string()));
+        assert!(data_flow.state_management.contains(&"ref".to_string()));
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn extracts_hono_backend_routes() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!("routogram-hono-{suffix}"));
+        let source_dir = root.join("src");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"hono-fixture","dependencies":{"hono":"^4"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            source_dir.join("server.ts"),
+            r#"import { Hono } from "hono";
+const app = new Hono();
+app.get('/api/health', (c) => c.json({ ok: true }));
+app.post('/api/users', (c) => c.json({ ok: true }));
+"#,
+        )
+        .unwrap();
+
+        let topology = scan_paths(&root, &root, "test".to_string()).unwrap();
+        let routes = topology
+            .nodes
+            .iter()
+            .filter(|node| node.kind == "backend_route")
+            .collect::<Vec<_>>();
+        assert_eq!(routes.len(), 2);
+        assert!(routes.iter().any(|node| node.name == "GET /api/health"));
+        assert!(
+            routes
+                .iter()
+                .all(|node| node.framework.as_deref() == Some("hono"))
+        );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn scan_paths_writes_nothing_into_project() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let root = std::env::temp_dir().join(format!("routogram-scan-paths-{suffix}"));
+        let scan_root = root.join("src");
+        fs::create_dir_all(&scan_root).unwrap();
+        fs::write(root.join("package.json"), r#"{"name":"fixture"}"#).unwrap();
+        fs::write(
+            scan_root.join("Widget.tsx"),
+            "export function Widget() { return <div>Widget</div>; }",
+        )
+        .unwrap();
+
+        let topology = scan_paths(&root, &scan_root, "test".to_string()).unwrap();
+        assert!(topology.nodes.iter().any(|node| node.name == "Widget"));
+        assert!(!root.join(".routogram").exists());
+        assert!(!root.join(".cache").exists());
+        assert!(!scan_root.join(".routogram").exists());
+
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

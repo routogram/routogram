@@ -121,3 +121,8 @@ export function isFunctionLike(
     ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)
   );
 }
+
+export {
+  runStandardSecurityRules,
+  type SecurityCheckResult,
+} from "./rules/security-rules.js";

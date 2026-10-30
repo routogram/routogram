@@ -57,3 +57,5 @@ crates/routogram-core/npm/
 .routogram/snapshots/
 .routogram/graph-rag.json
 .routogram/graph-rag.sqlite
+# Desktop bundled daemon resources
+crates/routogram-desktop/resources/

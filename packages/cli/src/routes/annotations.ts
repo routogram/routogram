@@ -9,15 +9,18 @@ import {
 } from "../annotations.js";
 
 type AnnotationRoutesOptions = {
-  root: string;
+  getRoot: () => string | null;
 };
 
 const KINDS = new Set<AnnotationKind>(["pin", "adr", "boundary"]);
 
-export function createAnnotationRoutes({ root }: AnnotationRoutesOptions): Hono {
+export function createAnnotationRoutes({ getRoot }: AnnotationRoutesOptions): Hono {
   const app = new Hono();
 
   app.get("/", (context) => {
+    const root = getRoot();
+    if (!root)
+      return context.json({ version: 1, updatedAt: new Date(0).toISOString(), annotations: [] });
     try {
       return context.json(loadAnnotations(root));
     } catch (error) {
@@ -26,6 +29,8 @@ export function createAnnotationRoutes({ root }: AnnotationRoutesOptions): Hono 
   });
 
   app.post("/", async (context) => {
+    const root = getRoot();
+    if (!root) return context.json({ error: "No active workspace." }, 409);
     const body = await readBody(context.req.json.bind(context.req));
     const title = typeof body.title === "string" ? body.title.trim() : "";
 
@@ -57,6 +62,8 @@ export function createAnnotationRoutes({ root }: AnnotationRoutesOptions): Hono 
   });
 
   app.patch("/:id", async (context) => {
+    const root = getRoot();
+    if (!root) return context.json({ error: "No active workspace." }, 409);
     const body = await readBody(context.req.json.bind(context.req));
     try {
       const annotation = updateAnnotation(root, context.req.param("id"), {
@@ -75,6 +82,8 @@ export function createAnnotationRoutes({ root }: AnnotationRoutesOptions): Hono 
   });
 
   app.delete("/:id", (context) => {
+    const root = getRoot();
+    if (!root) return context.json({ error: "No active workspace." }, 409);
     try {
       deleteAnnotation(root, context.req.param("id"));
       return context.json({ ok: true });

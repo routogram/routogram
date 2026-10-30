@@ -7,6 +7,7 @@ import { TopBar } from "@/components/top-bar";
 import { AppShell, type AppTab } from "@/layouts/app-shell";
 import { type FederatedTopology, fetchCodeHealth, fetchFederation, openInEditor } from "@/lib/apis";
 import { buildTopologyView, getRootNodeIds } from "@/lib/utils/topology-view";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 import { CollaborationStatus } from "./components/collaboration-status";
 import { CollaboratorCursors } from "./components/collaborator-cursors";
 import { DriftBanner } from "./components/drift-banner";
@@ -15,13 +16,16 @@ import { InspectorDrawer } from "./components/inspector-drawer";
 import { StoresPanel } from "./components/stores-panel";
 import { TopologyCanvas } from "./components/topology-canvas";
 import { TopologyToolbar } from "./components/topology-toolbar";
+import { WorkspaceEmptyState } from "./components/workspace-empty-state";
 import { useCollaboration } from "./hooks/use-collaboration";
+import { useDesktopShortcuts } from "./hooks/use-desktop-shortcuts";
 import { useTopology } from "./hooks/use-topology";
 import type { ConnectionStatus } from "./types/topology";
 
 const STATUS_META: Record<ConnectionStatus, { label: string; dot: string }> = {
   connecting: { label: "Connecting", dot: "bg-amber-400" },
   online: { label: "Live", dot: "bg-emerald-400" },
+  empty: { label: "No workspace", dot: "bg-zinc-500" },
   offline: { label: "Offline", dot: "bg-rose-500" },
   static: { label: "Static", dot: "bg-sky-400" },
 };
@@ -41,8 +45,16 @@ export default function TopologyShell({
   onChatOpen,
   onChatClose,
 }: TopologyShellProps) {
+  const activeWorkspaceId = useWorkspaceStore((state) => state.registry?.activeWorkspaceId ?? null);
+  const workspaceRegistry = useWorkspaceStore((state) => state.registry);
+  const loadWorkspaces = useWorkspaceStore((state) => state.load);
+  const openWorkspacePicker = useWorkspaceStore((state) => state.openPicker);
+  const rescanWorkspace = useWorkspaceStore((state) => state.rescan);
+  const activeWorkspace = activeWorkspaceId
+    ? workspaceRegistry?.workspaces[activeWorkspaceId]
+    : null;
   const { topology, status, isStatic, focusRequest, runtimeSnapshot, driftFindings, clearDrift } =
-    useTopology();
+    useTopology(activeWorkspaceId);
   const collaboration = useCollaboration(!isStatic);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<string[] | null>(null);
@@ -53,6 +65,22 @@ export default function TopologyShell({
   const [activeFederatedApp, setActiveFederatedApp] = useState<string | null>(null);
   const [healthByNode, setHealthByNode] = useState<Record<string, NodeHealthData>>({});
   const [hoveredStoreName, setHoveredStoreName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspaceRegistry) void loadWorkspaces();
+  }, [loadWorkspaces, workspaceRegistry]);
+
+  useEffect(() => {
+    void activeWorkspaceId;
+    setSelectedId(null);
+    setHighlightedNodeIds(null);
+    setHoveredStoreName(null);
+    setExpandedRootIds(new Set());
+    setCollapsedNodeIds(new Set());
+    setAutoExpandAll(true);
+    setFederation(null);
+    setActiveFederatedApp(null);
+  }, [activeWorkspaceId]);
 
   const federatedTopology = useMemo(() => {
     if (!federation || !activeFederatedApp) {
@@ -136,6 +164,7 @@ export default function TopologyShell({
     if (isStatic) {
       return;
     }
+    void activeWorkspaceId;
     let cancelled = false;
     fetchFederation().then((next) => {
       if (!cancelled) {
@@ -145,7 +174,7 @@ export default function TopologyShell({
     return () => {
       cancelled = true;
     };
-  }, [isStatic]);
+  }, [activeWorkspaceId, isStatic]);
 
   useEffect(() => {
     void activeFederatedApp;
@@ -203,6 +232,18 @@ export default function TopologyShell({
     setHighlightedNodeIds(null);
   }, []);
 
+  const handleDesktopOpenFolder = useCallback(() => {
+    openWorkspacePicker();
+  }, [openWorkspacePicker]);
+  const handleDesktopRescan = useCallback(() => {
+    if (activeWorkspaceId) void rescanWorkspace(activeWorkspaceId);
+  }, [activeWorkspaceId, rescanWorkspace]);
+
+  useDesktopShortcuts({
+    onOpenFolder: handleDesktopOpenFolder,
+    onRescanWorkspace: handleDesktopRescan,
+  });
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -255,7 +296,8 @@ export default function TopologyShell({
   );
 
   const projectSegments = displayTopology?.root.split(/[\\/]/).filter(Boolean) ?? [];
-  const projectName = projectSegments[projectSegments.length - 1] ?? "workspace";
+  const projectName =
+    activeWorkspace?.name ?? projectSegments[projectSegments.length - 1] ?? "No workspace";
   const searchNodes = (displayTopology?.nodes ?? []).map((node) => ({
     id: node.id,
     name: node.name,
@@ -354,8 +396,11 @@ export default function TopologyShell({
                 onHoverStore={setHoveredStoreName}
               />
 
-              {topology && view ? (
+              {!isStatic && !activeWorkspaceId ? (
+                <WorkspaceEmptyState />
+              ) : topology && view ? (
                 <TopologyCanvas
+                  key={activeWorkspaceId ?? "static"}
                   view={view}
                   expandedNodeIds={view.expandedNodeIds}
                   highlightedNodeIds={highlightedNodeIds}

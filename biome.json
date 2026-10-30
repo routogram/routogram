@@ -16,6 +16,11 @@
       "!crates/routogram-core/index.d.ts",
       "!**/pnpm-lock.yaml",
       "!examples/next-pc-ecommerce/src/app/globals.css",
+      "!examples/astro-pc-ecommerce/src/styles/global.css",
+      "!examples/astro-pc-ecommerce/src/**/*.astro",
+      "!examples/astro-pc-ecommerce/src/**/*.svelte",
+      "!examples/astro-pc-ecommerce/src/**/*.vue",
+      "!examples/nest-orders",
       "!packages/cli/configuration_schema.json"
     ]
   },

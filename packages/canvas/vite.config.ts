@@ -2,6 +2,21 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+function configureProxy(proxy: {
+  on: (event: "error", listener: (error: NodeJS.ErrnoException) => void) => void;
+}): void {
+  proxy.on("error", (error) => {
+    if (error.code === "EPIPE" || error.code === "ECONNRESET") {
+      return;
+    }
+    console.error("[vite proxy error]", error);
+  });
+}
+
+const daemonPort = process.env.ROUTOGRAM_PORT ?? "4040";
+const daemonTarget = `http://127.0.0.1:${daemonPort}`;
+const daemonWebSocketTarget = `ws://127.0.0.1:${daemonPort}`;
+
 export default defineConfig(({ mode }) => ({
   base: "./",
   plugins: [react(), tailwindcss()],
@@ -26,14 +41,16 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:4040",
+        target: daemonTarget,
         changeOrigin: true,
+        configure: configureProxy,
       },
       "/ws": {
-        target: "ws://127.0.0.1:4040",
+        target: daemonWebSocketTarget,
         ws: true,
         changeOrigin: true,
         rewriteWsOrigin: true,
+        configure: configureProxy,
       },
     },
   },

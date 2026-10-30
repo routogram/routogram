@@ -50,6 +50,8 @@ pub struct JsxAnalysis {
     pub fetch_signals: Vec<String>,
     pub used_stores: Vec<String>,
     pub props: Vec<ComponentPropMeta>,
+    pub side_effects: Vec<String>,
+    pub state_management: Vec<String>,
 }
 
 #[derive(Default)]
@@ -592,6 +594,7 @@ pub fn analyze_jsx_file(path: &Path, source: &str) -> Result<JsxAnalysis, String
     let runtime = detect_runtime(&parsed.program);
     let component_name = extract_component_name(&parsed.program, source);
     let props = extract_component_props(&parsed.program, component_name.as_deref(), source);
+    let signals = crate::analyzer::plugins::react::detect(source);
 
     let mut import_collector = ImportCollector::default();
     import_collector.visit_program(&parsed.program);
@@ -637,6 +640,8 @@ pub fn analyze_jsx_file(path: &Path, source: &str) -> Result<JsxAnalysis, String
             .into_iter()
             .collect(),
         props,
+        side_effects: signals.side_effects,
+        state_management: signals.state_management,
     })
 }
 
@@ -739,6 +744,132 @@ fn extract_component_name(program: &Program<'_>, source: &str) -> Option<String>
     }
 
     None
+}
+
+pub fn extract_used_store_names(source: &str) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index + 3 < bytes.len() {
+        if bytes[index..index + 3] == *b"use" {
+            let start = index;
+            let mut end = index + 3;
+            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                end += 1;
+            }
+            let candidate = &source[start..end];
+            if is_valid_store_name(candidate) {
+                names.insert(candidate.to_string());
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    names.into_iter().collect()
+}
+
+pub fn extract_vue_props(raw_source: &str) -> Vec<ComponentPropMeta> {
+    let parts = crate::analyzer::sfc_extractor::extract_sfc_script(raw_source, "vue");
+    let source = parts.script_source.as_str();
+    let mut props = Vec::new();
+
+    if let Some(index) = source.find("defineProps") {
+        let after = &source[index..];
+        if let Some(open) = after.find('{') {
+            if let Some(block) = balanced_block(after, open) {
+                props.extend(parse_runtime_props(block, true));
+            }
+        }
+    }
+    if props.is_empty() {
+        if let Some(index) = source.find("defineComponent") {
+            let after = &source[index..];
+            if let Some(props_index) = after.find("props:") {
+                let props_tail = &after[props_index + "props:".len()..];
+                if let Some(open) = props_tail.find('{') {
+                    if let Some(block) = balanced_block(props_tail, open) {
+                        props.extend(parse_runtime_props(block, false));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut seen = BTreeSet::new();
+    props.retain(|prop| seen.insert(prop.name.clone()));
+    props
+}
+
+fn balanced_block(source: &str, open: usize) -> Option<&str> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    for index in open..bytes.len() {
+        match bytes[index] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return source.get(open + 1..index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn parse_runtime_props(block: &str, typed: bool) -> Vec<ComponentPropMeta> {
+    let mut props = Vec::new();
+    let entries = if typed {
+        block
+            .split(|character| character == ';' || character == '\n')
+            .collect::<Vec<_>>()
+    } else {
+        block
+            .split(|character| character == ',' || character == '\n')
+            .collect::<Vec<_>>()
+    };
+    for raw_line in entries {
+        let line = raw_line.trim().trim_end_matches(',');
+        if line.is_empty() || line.starts_with("//") || line.starts_with('*') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim().trim_matches('"').trim_matches('\'');
+        if key.is_empty() || key.starts_with("...") || key.contains(char::is_whitespace) {
+            continue;
+        }
+        let optional = key.ends_with('?');
+        let name = key.trim_end_matches('?').to_string();
+        let value = value.trim().trim_end_matches(';').trim();
+        let prop_type = if typed {
+            Some(value.split(';').next().unwrap_or(value).trim().to_string())
+        } else if value.starts_with('{') {
+            if value.contains("type:") {
+                value
+                    .split("type:")
+                    .nth(1)
+                    .and_then(|tail| tail.split(',').next())
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_string)
+            } else {
+                None
+            }
+        } else {
+            Some(value.trim_end_matches(',').trim().to_string())
+        };
+        let required = value.contains("required: true");
+        props.push(ComponentPropMeta {
+            name,
+            prop_type: prop_type.filter(|value| !value.is_empty()),
+            optional: optional || (!typed && !required),
+        });
+    }
+    props
 }
 
 fn extract_component_props(
@@ -1204,6 +1335,25 @@ mod tests {
         let analysis =
             analyze_jsx_file(Path::new("src/components/Header/index.tsx"), source).expect("parse");
         assert_eq!(analysis.component_name.as_deref(), Some("Header"));
+    }
+
+    #[test]
+    fn scans_store_names_around_unicode() {
+        let source = "const label = 'Nova · workstations'; const store = useCartStore();";
+        assert_eq!(extract_used_store_names(source), vec!["useCartStore"]);
+    }
+
+    #[test]
+    fn extracts_vue_define_props() {
+        let source = r#"<script setup lang="ts">
+import { defineProps } from "vue";
+const props = defineProps<{ title: string; count?: number }>();
+</script>"#;
+        let props = extract_vue_props(source);
+        assert_eq!(props.len(), 2);
+        assert_eq!(props[0].name, "title");
+        assert_eq!(props[1].name, "count");
+        assert!(props[1].optional);
     }
 
     #[test]

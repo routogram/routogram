@@ -14,7 +14,7 @@ type SidebarProps = {
 
 const NAV_ITEMS = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
-  { id: "routing", label: "Route Topology", icon: GitFork },
+  { id: "routing", label: "Architecture Graph", icon: GitFork },
 ] as const;
 
 export function Sidebar({

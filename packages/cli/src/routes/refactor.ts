@@ -8,12 +8,12 @@ export type RefactorRunner = (
 ) => string;
 
 type RefactorRoutesOptions = {
-  root: string;
+  getRoot: () => string;
   run: RefactorRunner;
   onApplied: () => void;
 };
 
-export function createRefactorRoutes({ root, run, onApplied }: RefactorRoutesOptions): Hono {
+export function createRefactorRoutes({ getRoot, run, onApplied }: RefactorRoutesOptions): Hono {
   const app = new Hono();
 
   app.post("/apply", async (context) => {
@@ -42,7 +42,7 @@ export function createRefactorRoutes({ root, run, onApplied }: RefactorRoutesOpt
     }
 
     try {
-      const raw = run(root, recipeId, targetNodeId, previewOnly);
+      const raw = run(getRoot(), recipeId, targetNodeId, previewOnly);
       const result: unknown = JSON.parse(raw);
 
       if (

@@ -31,6 +31,12 @@ pub struct FrameworkAnalysis {
     pub islands: Vec<IslandDirective>,
     pub middleware: Vec<String>,
     pub imports: Vec<String>,
+    pub side_effects: Vec<String>,
+    pub state_management: Vec<String>,
+    pub has_style_block: bool,
+    pub script_line: u32,
+    pub props: Vec<crate::model::ComponentPropMeta>,
+    pub used_stores: Vec<String>,
 }
 
 impl Default for FileRole {
@@ -45,12 +51,25 @@ pub fn analyze_markup_file(relative: &str, source: &str) -> Option<FrameworkAnal
         .and_then(|extension| extension.to_str())?
         .to_lowercase();
 
-    match extension.as_str() {
-        "astro" => Some(astro::analyze(relative, source)),
-        "vue" => Some(vue::analyze(relative, source)),
-        "svelte" => Some(svelte::analyze(relative, source)),
-        _ => None,
+    let mut analysis = match extension.as_str() {
+        "astro" => astro::analyze(relative, source),
+        "vue" => vue::analyze(relative, source),
+        "svelte" => svelte::analyze(relative, source),
+        _ => return None,
+    };
+    let signals = crate::analyzer::plugins::detect_for_source(&analysis.framework, source);
+    let parts = crate::analyzer::extractors::extract_sfc_parts(source);
+    analysis.side_effects = signals.side_effects;
+    analysis.state_management = signals.state_management;
+    analysis.has_style_block = !parts.style.is_empty();
+    analysis.script_line = parts.script_line;
+    if analysis.framework == "vue" {
+        analysis.props = crate::analyzer::matcher::extract_vue_props(source);
+        let script = crate::analyzer::sfc_extractor::extract_sfc_script(source, "vue");
+        analysis.used_stores =
+            crate::analyzer::matcher::extract_used_store_names(&script.script_source);
     }
+    Some(analysis)
 }
 
 pub fn route_path(segments: &[String]) -> String {

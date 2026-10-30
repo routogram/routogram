@@ -1,6 +1,7 @@
 import { Check, Code2, Copy, PanelRightClose, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { WorkspaceSwitcher } from "@/app/features/topology/components/workspace-switcher";
 import type { AppTab } from "@/layouts/app-shell";
 import { cn } from "@/lib/utils/cn";
 
@@ -25,7 +26,7 @@ type TopBarProps = {
 
 const TITLES: Record<AppTab, { eyebrow: string; title: string }> = {
   overview: { eyebrow: "Console / Overview", title: "Overview" },
-  routing: { eyebrow: "Console / Route Topology", title: "Route Topology" },
+  routing: { eyebrow: "Console / Architecture Graph", title: "Architecture Graph" },
 };
 
 export function TopBar({
@@ -86,13 +87,17 @@ export function TopBar({
 
   return (
     <header className="relative flex h-11 shrink-0 items-center justify-between gap-4 px-1">
-      <div className="min-w-0">
-        <p className="text-[8px] font-medium uppercase tracking-[0.2em] text-zinc-600">
-          {meta.eyebrow}
-        </p>
-        <h1 className="truncate text-[13px] font-semibold tracking-tight text-zinc-100">
-          {meta.title}
-        </h1>
+      <div className="flex min-w-0 items-center gap-2">
+        <WorkspaceSwitcher />
+        <div className="h-5 w-px shrink-0 bg-white/[0.06]" />
+        <div className="min-w-0">
+          <p className="text-[8px] font-medium uppercase tracking-[0.2em] text-zinc-600">
+            {meta.eyebrow}
+          </p>
+          <h1 className="truncate text-[13px] font-semibold tracking-tight text-zinc-100">
+            {meta.title}
+          </h1>
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
@@ -191,7 +196,9 @@ export function TopBar({
                       className={cn(
                         "size-1.5 shrink-0 rounded-full",
                         node.kind === "route" && "bg-amber-400",
-                        node.kind === "component" && "bg-sky-400",
+                        (node.kind === "component" || node.kind === "ui_component") && "bg-sky-400",
+                        (node.kind === "backend_route" || node.kind === "controller") &&
+                          "bg-rose-400",
                         node.kind === "layout" && "bg-violet-400",
                         !["route", "component", "layout"].includes(node.kind) && "bg-zinc-500",
                       )}

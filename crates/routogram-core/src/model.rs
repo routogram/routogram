@@ -74,11 +74,19 @@ pub struct NodeDataFlowMeta {
     pub data_role: String,
     pub fetch_signals: Vec<String>,
     pub re_render_surface_count: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_effects: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state_management: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeMeta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_server_component: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

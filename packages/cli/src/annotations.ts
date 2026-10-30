@@ -25,11 +25,11 @@ export type AnnotationStore = {
 };
 
 const STORE_VERSION = 1;
-const FILE = ".routogram/annotations.json";
+const FILE = "annotations.json";
 const PALETTE = ["#38bdf8", "#a78bfa", "#f472b6", "#34d399", "#fbbf24", "#fb7185"];
 
 export function loadAnnotations(root: string): AnnotationStore {
-  const path = storePath(root);
+  const path = legacyStorePath(root);
   if (!existsSync(path)) {
     return { version: STORE_VERSION, updatedAt: new Date(0).toISOString(), annotations: [] };
   }
@@ -49,7 +49,7 @@ export function loadAnnotations(root: string): AnnotationStore {
 
 export function saveAnnotations(root: string, store: AnnotationStore): void {
   const path = storePath(root);
-  mkdirSync(resolve(root, ".routogram"), { recursive: true });
+  mkdirSync(root, { recursive: true });
   const temporary = `${path}.tmp`;
   store.updatedAt = new Date().toISOString();
   writeFileSync(temporary, `${JSON.stringify(store, null, 2)}\n`);
@@ -125,6 +125,15 @@ export function deleteAnnotation(root: string, id: string): void {
 
 function storePath(root: string): string {
   return resolve(root, FILE);
+}
+
+function legacyStorePath(root: string): string {
+  const workspacePath = storePath(root);
+  if (existsSync(workspacePath)) {
+    return workspacePath;
+  }
+  const legacy = resolve(root, ".routogram/annotations.json");
+  return existsSync(legacy) ? legacy : workspacePath;
 }
 
 function isStore(value: unknown): value is AnnotationStore {

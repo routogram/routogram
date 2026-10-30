@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The desktop crate is intentionally excluded from the default workspace until
+# Tauri v2 system dependencies / crates are available in the build environment.
+# Add "crates/routogram-desktop" to members when building the native installer.
+exclude = ["crates/routogram-desktop"]
 
 [workspace.package]
 version = "0.1.0"

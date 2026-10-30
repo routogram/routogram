@@ -6,6 +6,10 @@ export type UIFramework =
   | "lit"
   | "astro"
   | "svelte"
+  | "hono"
+  | "nest"
+  | "express"
+  | "vanilla"
   | "unknown";
 
 const META_FRAMEWORK_ALIASES: Record<string, UIFramework> = {
@@ -13,6 +17,7 @@ const META_FRAMEWORK_ALIASES: Record<string, UIFramework> = {
   nuxt: "vue",
   sveltekit: "svelte",
   tanstack: "react",
+  backend: "vanilla",
 };
 
 export function normalizeUIFramework(value: string | undefined | null): UIFramework {
@@ -33,6 +38,10 @@ export function normalizeUIFramework(value: string | undefined | null): UIFramew
     case "lit":
     case "astro":
     case "svelte":
+    case "hono":
+    case "nest":
+    case "express":
+    case "vanilla":
       return normalized;
     default:
       return "unknown";

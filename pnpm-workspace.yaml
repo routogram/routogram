@@ -1,6 +1,8 @@
 packages:
   - "packages/*"
   - "examples/next-pc-ecommerce"
+  - "examples/astro-pc-ecommerce"
+  - "examples/nest-orders"
 
 allowBuilds:
   "@biomejs/biome": true

@@ -16,7 +16,7 @@ export const FRAMEWORK_BADGE_CONFIG: Record<UIFramework, FrameworkBadgeStyle> = 
   },
   solid: {
     label: "SOLID",
-    className: "border-blue-800/60 bg-blue-950/60 text-blue-400",
+    className: "border-sky-800/60 bg-sky-950/60 text-sky-400",
   },
   preact: {
     label: "PREACT",
@@ -24,7 +24,7 @@ export const FRAMEWORK_BADGE_CONFIG: Record<UIFramework, FrameworkBadgeStyle> = 
   },
   lit: {
     label: "LIT",
-    className: "border-amber-800/60 bg-amber-950/60 text-amber-400",
+    className: "border-indigo-800/60 bg-indigo-950/60 text-indigo-400",
   },
   astro: {
     label: "ASTRO",
@@ -32,7 +32,23 @@ export const FRAMEWORK_BADGE_CONFIG: Record<UIFramework, FrameworkBadgeStyle> = 
   },
   svelte: {
     label: "SVELTE",
-    className: "border-rose-800/60 bg-rose-950/60 text-rose-400",
+    className: "border-orange-800/60 bg-orange-950/60 text-orange-400",
+  },
+  hono: {
+    label: "HONO",
+    className: "border-orange-800/60 bg-orange-950/60 text-orange-300",
+  },
+  nest: {
+    label: "NEST",
+    className: "border-red-800/60 bg-red-950/60 text-red-300",
+  },
+  express: {
+    label: "EXPRESS",
+    className: "border-zinc-600 bg-zinc-800 text-zinc-200",
+  },
+  vanilla: {
+    label: "VANILLA",
+    className: "border-yellow-800/60 bg-yellow-950/60 text-yellow-300",
   },
   unknown: {
     label: "JS",

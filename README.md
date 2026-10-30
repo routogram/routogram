@@ -53,7 +53,7 @@ pnpm typecheck
 ```
 
 `pnpm build` runs native, TypeScript packages, canvas assets, report template and LSP binary in
-one command. `pnpm verify` runs lint, typecheck and build.
+one command. `pnpm verify` runs lint, typecheck and Rust tests.
 
 ## Workspace layout
 

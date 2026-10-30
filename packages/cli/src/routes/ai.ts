@@ -106,7 +106,7 @@ Return ONLY a single JSON object with this exact shape:
 nodeIds must identify every node relevant to the answer and MUST be exact ids from the topology. confidence is a number from 0 to 1. Do not return markdown or prose outside the JSON object.`;
 
 type AiRouteOptions = {
-  ai?: AiConfig;
+  getAi?: () => AiConfig | undefined;
 };
 
 const CHAT_SYSTEM_PROMPT = `You are Architecture Assistant, a concise senior frontend and fullstack architect embedded in Routogram.
@@ -192,7 +192,7 @@ export function createAiRoutes(
         throw new AiRequestError(400, "A non-empty message is required.");
       }
 
-      const provider = resolveConfiguredProvider(body.providerId, options.ai);
+      const provider = resolveConfiguredProvider(body.providerId, options.getAi?.());
       if (!provider) {
         throw new AiRequestError(
           400,

@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 
 type MigrationRoutesOptions = {
-  root: string;
+  getRoot: () => string;
   run: (root: string, recipeId: string, apply: boolean) => string;
   onApplied: () => void;
   onPreview: (result: unknown) => void;
 };
 
 export function createMigrationRoutes({
-  root,
+  getRoot,
   run,
   onApplied,
   onPreview,
@@ -22,7 +22,7 @@ export function createMigrationRoutes({
       return context.json({ error: "recipeId is required." }, 400);
     }
     try {
-      const result: unknown = JSON.parse(run(root, recipeId, false));
+      const result: unknown = JSON.parse(run(getRoot(), recipeId, false));
       onPreview(result);
       return context.json(result);
     } catch (error) {
@@ -37,7 +37,7 @@ export function createMigrationRoutes({
       return context.json({ error: "recipeId is required." }, 400);
     }
     try {
-      const result: unknown = JSON.parse(run(root, recipeId, true));
+      const result: unknown = JSON.parse(run(getRoot(), recipeId, true));
       onApplied();
       return context.json(result);
     } catch (error) {

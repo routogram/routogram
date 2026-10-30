@@ -17,16 +17,15 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { publishSnapshot } from "@routogram/cloud-sync";
+import { runStandardSecurityRules } from "@routogram/plugin-core";
 import {
-  applyTopologyPatch,
+  createEmptyTopology,
+  type DiagnosticsUpdatedPayload,
   isRoutogramRuntimeSnapshot,
   isRoutogramTimeline,
-  isRoutogramTopology,
-  isRoutogramTopologyPatch,
   ROUTOGRAM_VERSION,
   type RoutogramConfig,
   type RoutogramRuntimeSnapshot,
@@ -39,12 +38,13 @@ import { WebSocket, WebSocketServer } from "ws";
 import { AgentMissionManager } from "./agent/mod.js";
 import { loadAnnotations } from "./annotations.js";
 import { generateArchitectureMarkdown } from "./architecture-doc.js";
-import { loadRoutogramConfig } from "./config.js";
 import { formatDiffJson, formatDiffMarkdown, runArchitectureDiff } from "./diff.js";
 import { buildEditorUrl, detectEditor, normalizeEditor } from "./editors.js";
 import { analyzeCodeHealth } from "./health.js";
 import { formatLintSummary, runLint } from "./lint.js";
+import { attachDiagnosticsToTopology, runDetectedLintersAsync } from "./linters/linter-bridge.js";
 import { loadNativeCore } from "./native.js";
+import { autoRecommendPlugins, getPluginCatalog } from "./plugins/plugin-manager.js";
 import { createAgentRoutes } from "./routes/agent.js";
 import { createAiRoutes } from "./routes/ai.js";
 import { createAnnotationRoutes } from "./routes/annotations.js";
@@ -54,12 +54,16 @@ import { createDriftRoutes } from "./routes/drift.js";
 import { createFederationRoutes } from "./routes/federation.js";
 import { createGraphRoutes } from "./routes/graph.js";
 import { createMigrationRoutes } from "./routes/migration.js";
+import { createPluginRoutes } from "./routes/plugins.js";
 import { createRefactorRoutes } from "./routes/refactor.js";
 import { createSimulationRoutes } from "./routes/simulation.js";
+import { createWorkspaceRoutes } from "./routes/workspaces.js";
 import { formatRulebookMarkdown, formatRulebookSarif, runRulebook } from "./rulebook.js";
-import { createSampleTopology } from "./sample.js";
 import { runStaticExport } from "./static-export.js";
+import { ensureUserDirectory, readJsonFile } from "./storage/user-directory.js";
+import { defaultBrowsePath, listServerDirectories } from "./system/directory-picker.js";
 import { detectDrift, notifyDrift } from "./watcher/drift.js";
+import { WorkspaceManager, type WorkspaceScanResult } from "./workspace-manager.js";
 
 loadEnv({ path: resolve(process.cwd(), ".env"), quiet: true });
 
@@ -101,6 +105,7 @@ const { values, positionals } = parseArgs({
   options: {
     port: { type: "string", short: "p" },
     root: { type: "string", short: "r" },
+    dir: { type: "string", short: "d" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
     "no-watch": { type: "boolean" },
@@ -369,24 +374,26 @@ if (subcommand === "lint") {
   }
 }
 
-const port = await findAvailablePort(resolvePort(values.port, "daemon"), "daemon");
+const bootUser = ensureUserDirectory();
+const globalConfig = readJsonFile<{
+  ports?: { daemon?: unknown; canvas?: unknown };
+  editor?: { default?: unknown };
+}>(resolve(bootUser.root, "config.json"), {});
+const configuredDaemonPort = Number(globalConfig.ports?.daemon);
+const configuredCanvasPort = Number(globalConfig.ports?.canvas);
+const port = await findAvailablePort(
+  resolvePort(
+    values.port,
+    "daemon",
+    Number.isInteger(configuredDaemonPort) ? configuredDaemonPort : undefined,
+  ),
+  "daemon",
+);
 // INIT_CWD preserves where pnpm was invoked, not the filtered package cwd.
 // INIT_CWD giữ thư mục gọi pnpm, không phải cwd của package được filter.
 const invocationRoot = process.env.INIT_CWD ?? process.cwd();
-const root = resolve(values.root ?? process.env.ROUTOGRAM_ROOT ?? invocationRoot);
-
-if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
-  console.error(`[daemon] Workspace root is not a directory: ${root}`);
-  process.exit(1);
-}
-
-const projectConfig = await loadRoutogramConfig(
-  root,
-  values.config ?? process.env.ROUTOGRAM_CONFIG,
-).catch((error: unknown): { config: RoutogramConfig; raw: Record<string, unknown>; path: null } => {
-  console.error(`[config] ${error instanceof Error ? error.message : String(error)}`);
-  return { config: {}, raw: {}, path: null };
-});
+const requestedPath = values.dir ?? values.root ?? process.env.ROUTOGRAM_ROOT;
+const initialPath = requestedPath ? resolve(requestedPath) : undefined;
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const canvasCandidates = [
@@ -399,38 +406,163 @@ const canvasDir = canvasEnabled
   ? (canvasCandidates.find((candidate) => existsSync(resolve(candidate, "index.html"))) ?? null)
   : null;
 const canvasPort = canvasDir
-  ? await findAvailablePort(resolveCanvasPort(values["canvas-port"]), "canvas")
+  ? await findAvailablePort(
+      resolveCanvasPort(
+        values["canvas-port"],
+        Number.isInteger(configuredCanvasPort) ? configuredCanvasPort : undefined,
+      ),
+      "canvas",
+    )
   : null;
 
 const native = loadNativeCore();
 const nativeVersion = native.core?.coreVersion() ?? null;
-const incrementalScanner = native.core?.IncrementalScanner
-  ? new native.core.IncrementalScanner()
-  : null;
-let nativeError = native.error;
-let topology = createSampleTopology(root);
-let topologySource: "native" | "sample" = "sample";
-let runtimeSnapshot: RoutogramRuntimeSnapshot | null = null;
+const workspaceManager = new WorkspaceManager({ native: native.core });
+let initialWorkspace: WorkspaceScanResult | null = null;
+try {
+  initialWorkspace = await workspaceManager.initialize(initialPath);
+} catch (error) {
+  console.error(`[workspace] ${error instanceof Error ? error.message : String(error)}`);
+}
 
-function refreshTopology(): boolean {
-  if (!native.core) {
-    return false;
+let root = initialWorkspace?.summary.projectRoot ?? resolve(initialPath ?? invocationRoot);
+let projectConfig = initialWorkspace
+  ? {
+      config: initialWorkspace.config,
+      raw: initialWorkspace.raw,
+      path: initialWorkspace.configPath,
+    }
+  : { config: {} as RoutogramConfig, raw: {} as Record<string, unknown>, path: null };
+let nativeError = native.error;
+let topology = initialWorkspace?.topology ?? createEmptyTopology(root);
+let topologySource: "native" | "empty" = initialWorkspace ? "native" : "empty";
+let runtimeSnapshot: RoutogramRuntimeSnapshot | null = null;
+let latestDiagnostics: DiagnosticsUpdatedPayload | null = null;
+let stopWatcher: (() => void) | null = null;
+
+function workspaceAnnotationsRoot(): string | null {
+  const id = workspaceManager.getActiveId();
+  return id ? resolve(workspaceManager.user.workspaces, id) : null;
+}
+
+function applyWorkspaceResult(result: WorkspaceScanResult): void {
+  if (result.summary.id !== workspaceManager.getActiveId()) {
+    return;
   }
 
-  try {
-    const raw = incrementalScanner
-      ? incrementalScanner.scan(root)
-      : native.core.scanWorkspace(root);
-    const scanned: unknown = JSON.parse(raw);
+  root = result.summary.projectRoot;
+  topology = result.topology;
+  topologySource = "native";
+  projectConfig = {
+    config: result.config,
+    raw: result.raw,
+    path: result.configPath,
+  };
+  nativeError = null;
+  startActiveWatcher();
+  broadcast({
+    type: "topology:snapshot",
+    topology,
+    workspaceId: result.summary.id,
+  });
+  void runWorkspaceDiagnosticsAsync();
+}
 
-    if (!isRoutogramTopology(scanned)) {
-      nativeError = "The native scanner returned an invalid topology payload.";
-      return false;
+async function runWorkspaceDiagnosticsAsync(): Promise<void> {
+  const active = workspaceManager.getActiveSummary();
+  if (!active) return;
+
+  const scanTopology = topology;
+  const workspaceId = active.id;
+  const plugins = await getPluginCatalog(workspaceManager.user.root);
+  const recommendation = await autoRecommendPlugins(active.projectRoot, active.framework);
+  const external = await runDetectedLintersAsync(
+    active.projectRoot,
+    active.scanPath,
+    recommendation.linters,
+  );
+
+  const securityEnabled = plugins.some(
+    (plugin) => plugin.id === "plugin-security" && plugin.installed && plugin.enabled,
+  );
+  if (securityEnabled) {
+    const sources = new Map<string, string>();
+    const depthMap = buildPropDepthMap(scanTopology);
+    for (const node of scanTopology.nodes) {
+      if (node.kind === "style" || node.kind === "token") continue;
+      let source = sources.get(node.file);
+      if (source === undefined) {
+        try {
+          source = readFileSync(resolve(active.projectRoot, node.file), "utf8");
+        } catch {
+          source = "";
+        }
+        sources.set(node.file, source);
+      }
+      if (!source) continue;
+      for (const result of runStandardSecurityRules(node, source, depthMap)) {
+        external.push({
+          id: `${result.ruleId}:${node.file}:${result.line ?? 1}`,
+          ruleId: result.ruleId,
+          source: "security",
+          severity: result.severity,
+          message: result.message,
+          filePath: node.file,
+          line: result.line,
+          suggestion: result.suggestion,
+        });
+      }
     }
+  }
 
-    topology = scanned;
-    topologySource = "native";
-    nativeError = null;
+  if (workspaceManager.getActiveId() !== workspaceId) return;
+
+  const payload: DiagnosticsUpdatedPayload = {
+    type: "diagnostics_updated",
+    workspaceId,
+    generatedAt: new Date().toISOString(),
+    nodes: attachDiagnosticsToTopology(scanTopology, external),
+  };
+  latestDiagnostics = payload;
+  broadcast(payload);
+}
+
+function buildPropDepthMap(scanTopology: typeof topology): Map<string, number> {
+  const incoming = new Set(scanTopology.edges.map((edge) => edge.target));
+  const adjacency = new Map<string, string[]>();
+  for (const edge of scanTopology.edges) {
+    adjacency.set(edge.source, [...(adjacency.get(edge.source) ?? []), edge.target]);
+  }
+  const depths = new Map<string, number>();
+  const queue = scanTopology.nodes
+    .filter((node) => !incoming.has(node.id))
+    .map((node) => ({ id: node.id, depth: 0 }));
+  while (queue.length > 0) {
+    const entry = queue.shift();
+    if (!entry || depths.has(entry.id)) continue;
+    depths.set(entry.id, entry.depth);
+    for (const child of adjacency.get(entry.id) ?? []) {
+      if (!depths.has(child)) queue.push({ id: child, depth: entry.depth + 1 });
+    }
+  }
+  return depths;
+}
+
+function handleWorkspaceRegistryChanged(): void {
+  if (workspaceManager.getActiveId()) {
+    return;
+  }
+  stopWatcher?.();
+  stopWatcher = null;
+  topology = createEmptyTopology(root);
+  topologySource = "empty";
+  broadcast({ type: "topology:invalidate", at: new Date().toISOString() });
+}
+
+async function rescanActiveWorkspace(): Promise<boolean> {
+  try {
+    const result = await workspaceManager.rescan();
+    applyWorkspaceResult(result);
     return true;
   } catch (error) {
     nativeError = error instanceof Error ? error.message : String(error);
@@ -438,7 +570,11 @@ function refreshTopology(): boolean {
   }
 }
 
-refreshTopology();
+workspaceManager.setOnUpdated((result) => {
+  if (result.summary.id === workspaceManager.getActiveId()) {
+    applyWorkspaceResult(result);
+  }
+});
 
 function resolveEditorOpen(payload: Record<string, unknown> | null): {
   status: 200 | 400 | 403 | 404;
@@ -462,7 +598,11 @@ function resolveEditorOpen(payload: Record<string, unknown> | null): {
 
   const line = positiveInteger(payload.line) ?? 1;
   const column = positiveInteger(payload.column) ?? 1;
-  const editor = normalizeEditor(payload.editor) ?? detectEditor();
+  const configuredEditor =
+    globalConfig.editor?.default === "cursor" || globalConfig.editor?.default === "vscode"
+      ? globalConfig.editor.default
+      : undefined;
+  const editor = normalizeEditor(payload.editor) ?? configuredEditor ?? detectEditor();
 
   return {
     status: 200,
@@ -522,7 +662,7 @@ app.use(
   "*",
   cors({
     origin: "*",
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: [
       "Content-Type",
       "X-Routogram-Api-Key",
@@ -578,6 +718,9 @@ app.get("/api/health", (context) =>
 );
 
 app.get("/api/topology", (context) => {
+  if (workspaceManager.getActiveId() === null) {
+    return context.json({ activeWorkspaceId: null, topology: null });
+  }
   context.header("Cache-Control", "no-store");
   context.header("X-Routogram-Source", topologySource);
   return context.json(topology);
@@ -653,26 +796,60 @@ app.post("/api/ide/focus", async (context) => {
 
 app.route(
   "/api/ai",
-  createAiRoutes(() => topology, { ai: projectConfig.config.ai }),
+  createAiRoutes(() => topology, { getAi: () => projectConfig.config.ai }),
 );
 
 app.route(
   "/api/config",
   createConfigRoutes({
-    raw: projectConfig.raw,
-    ai: projectConfig.config.ai,
-    configPath: projectConfig.path,
+    getRaw: () => projectConfig.raw,
+    getAi: () => projectConfig.config.ai,
+    getConfigPath: () => projectConfig.path,
   }),
 );
 
+app.get("/api/fs/list", (context) => {
+  const path = context.req.query("path") ?? defaultBrowsePath();
+  try {
+    return context.json({ path, entries: listServerDirectories(path) });
+  } catch (error) {
+    return context.json(
+      { error: error instanceof Error ? error.message : "Directory listing failed." },
+      500,
+    );
+  }
+});
+
 app.get("/api/health/code", (context) => context.json(analyzeCodeHealth(root, topology)));
 
-app.route("/api/annotations", createAnnotationRoutes({ root }));
-
-const federationRoots = (values.roots ?? process.env.ROUTOGRAM_ROOTS ?? root)
-  .split(",")
-  .map((entry) => entry.trim())
-  .filter(Boolean);
+app.route("/api/annotations", createAnnotationRoutes({ getRoot: workspaceAnnotationsRoot }));
+app.route(
+  "/api/workspaces",
+  createWorkspaceRoutes({
+    manager: workspaceManager,
+    onActivated: applyWorkspaceResult,
+    onChanged: handleWorkspaceRegistryChanged,
+  }),
+);
+app.route(
+  "/api/plugins",
+  createPluginRoutes({
+    getUserDir: () => workspaceManager.user.root,
+    getActiveWorkspace: () => {
+      const active = workspaceManager.getActiveSummary();
+      return active
+        ? {
+            id: active.id,
+            projectRoot: active.projectRoot,
+            framework: active.framework,
+          }
+        : null;
+    },
+    triggerDiagnostics: () => {
+      void runWorkspaceDiagnosticsAsync();
+    },
+  }),
+);
 
 const agentWsServer = new WebSocketServer({ noServer: true });
 const agentManager = new AgentMissionManager(
@@ -745,7 +922,14 @@ app.route("/api/agent", createAgentRoutes({ manager: agentManager }));
 app.route(
   "/api/federation",
   createFederationRoutes({
-    roots: federationRoots,
+    getRoots: () => {
+      const active = workspaceManager.getActiveSummary();
+      const base = active?.projectRoot ?? root;
+      return (values.roots ?? process.env.ROUTOGRAM_ROOTS ?? base)
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    },
     run: (roots) => {
       if (!native.core) {
         throw new Error("The native federation engine is unavailable.");
@@ -758,7 +942,7 @@ app.route(
 app.route(
   "/api/migration",
   createMigrationRoutes({
-    root,
+    getRoot: () => root,
     run: (workspaceRoot, recipeId, apply) => {
       if (!native.core) {
         throw new Error("The native migration engine is unavailable.");
@@ -766,20 +950,18 @@ app.route(
       return native.core.runMigration(workspaceRoot, recipeId, apply);
     },
     onApplied: () => {
-      if (refreshTopology()) {
-        broadcast({ type: "topology:invalidate", at: new Date().toISOString() });
-      }
+      void rescanActiveWorkspace();
     },
     onPreview: () => {},
   }),
 );
 
-app.route("/api/drift", createDriftRoutes({ root }));
+app.route("/api/drift", createDriftRoutes({ getRoot: () => root }));
 
 app.route(
   "/api/simulation",
   createSimulationRoutes({
-    root,
+    getRoot: () => root,
     getTopology: () => topology,
     run: (workspaceRoot, topologyJson, operationsJson) => {
       if (!native.core) {
@@ -833,7 +1015,7 @@ app.route(
 app.route(
   "/api/refactor",
   createRefactorRoutes({
-    root,
+    getRoot: () => root,
     run: (workspaceRoot, recipeId, targetNodeId, previewOnly) => {
       if (!native.core) {
         throw new Error("The native refactor engine is unavailable.");
@@ -842,10 +1024,7 @@ app.route(
       return native.core.applyRefactor(workspaceRoot, recipeId, targetNodeId, previewOnly);
     },
     onApplied: () => {
-      const refreshed = refreshTopology();
-      if (refreshed) {
-        broadcast({ type: "topology:invalidate", at: new Date().toISOString() });
-      }
+      void rescanActiveWorkspace();
     },
   }),
 );
@@ -864,15 +1043,14 @@ const server = serve({ fetch: app.fetch, hostname: HOST, port }, () => {
   if (canvasDir && canvasPort) {
     console.log(`  Canvas     http://${HOST}:${canvasPort}/`);
   }
+  console.log(`  User       ${workspaceManager.user.root}`);
+  console.log(`  Workspace  ${workspaceManager.getActiveSummary()?.name ?? "none selected"}`);
   console.log(`  Root       ${root}`);
   console.log(
     `  Core       ${native.core ? `native v${nativeVersion}` : "sample fallback (bridge unavailable)"}`,
   );
   if (nativeError) {
     console.log(`  Bridge     ${nativeError}`);
-  }
-  if (topologySource === "sample" && native.core) {
-    console.log("  Scanner    unavailable; serving the sample topology");
   }
   console.log(
     `  Graph      ${topologySource} (${topology.nodes.length} nodes, ${topology.edges.length} edges, ${topology.tokens?.length ?? 0} tokens)\n`,
@@ -953,11 +1131,27 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 wsServer.on("connection", (socket) => {
-  const snapshot: RoutogramServerEvent = { type: "topology:snapshot", topology };
-  socket.send(JSON.stringify(snapshot));
+  if (workspaceManager.getActiveId()) {
+    const snapshot: RoutogramServerEvent = {
+      type: "topology:snapshot",
+      topology,
+      workspaceId: workspaceManager.getActiveId(),
+    };
+    socket.send(JSON.stringify(snapshot));
+  }
 
   if (runtimeSnapshot) {
-    socket.send(JSON.stringify({ type: "RUNTIME_UPDATE", payload: runtimeSnapshot }));
+    socket.send(
+      JSON.stringify({
+        type: "RUNTIME_UPDATE",
+        payload: runtimeSnapshot,
+        workspaceId: workspaceManager.getActiveId(),
+      }),
+    );
+  }
+
+  if (latestDiagnostics && latestDiagnostics.workspaceId === workspaceManager.getActiveId()) {
+    socket.send(JSON.stringify(latestDiagnostics));
   }
 
   socket.on("error", (error) => {
@@ -1007,7 +1201,10 @@ runtimeWsServer.on("connection", (socket) => {
 });
 
 function broadcast(event: RoutogramServerEvent): void {
-  const payload = JSON.stringify(event);
+  const payload = JSON.stringify({
+    ...event,
+    workspaceId: workspaceManager.getActiveId(),
+  });
 
   for (const client of wsServer.clients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -1016,78 +1213,52 @@ function broadcast(event: RoutogramServerEvent): void {
   }
 }
 
-function checkDrift(previous: typeof topology): void {
-  const findings = detectDrift(root, previous, topology);
-  if (findings.length === 0) {
+function startActiveWatcher(): void {
+  stopWatcher?.();
+  stopWatcher = null;
+  if (values["no-watch"]) {
     return;
   }
-  const payload = { findings, at: new Date().toISOString() };
-  broadcast({ type: "CRITICAL_DRIFT_DETECTED", payload });
-  notifyDrift(payload);
-}
-
-function applyIncrementalUpdate(filename: string | null): boolean {
-  if (!incrementalScanner || topologySource !== "native") {
-    return false;
+  const summary = workspaceManager.getActiveSummary();
+  if (!summary) {
+    return;
   }
 
-  try {
-    const raw = incrementalScanner.update(root, filename ? [filename] : []);
-    const patch: unknown = JSON.parse(raw);
-
-    if (!isRoutogramTopologyPatch(patch)) {
-      throw new Error("The native scanner returned an invalid topology patch.");
-    }
-
-    topology = applyTopologyPatch(topology, patch);
-    nativeError = null;
-    broadcast({ type: "PATCH_TOPOLOGY", payload: patch });
-    console.log(
-      `[watch] ${filename ?? "workspace"} patched (${patch.updatedNodes.length} updated nodes, ${patch.removedNodeIds.length} removed)`,
-    );
-    return true;
-  } catch (error) {
-    nativeError = error instanceof Error ? error.message : String(error);
-    return false;
-  }
-}
-
-const stopWatcher = values["no-watch"]
-  ? null
-  : startWatcher(root, (filename) => {
-      const changedFile = filename ?? "workspace";
-      const previous = JSON.parse(JSON.stringify(topology)) as typeof topology;
-
-      if (applyIncrementalUpdate(filename)) {
-        checkDrift(previous);
-        if (process.env.ROUTOGRAM_FOCUS_ON_CHANGE === "1" && filename) {
-          broadcastFocus(
-            filename.replaceAll("\\", "/"),
-            nodeIdsForFile(filename.replaceAll("\\", "/")),
-            "watcher",
-          );
+  stopWatcher = startWatcher(summary.scanPath, (filename) => {
+    const changedFile = filename ?? "workspace";
+    const previous = JSON.parse(JSON.stringify(topology)) as typeof topology;
+    void workspaceManager
+      .rescan()
+      .then((result) => {
+        if (workspaceManager.getActiveId() !== result.summary.id) {
+          return;
         }
-        return;
-      }
-
-      if (refreshTopology()) {
-        checkDrift(previous);
-        broadcast({ type: "topology:snapshot", topology });
-        console.log(
-          `[watch] ${changedFile} changed; topology rescanned (${topology.nodes.length} nodes)`,
+        applyWorkspaceResult(result);
+        const findings = detectDrift(root, previous, result.topology);
+        if (findings.length > 0) {
+          const payload = { findings, at: new Date().toISOString() };
+          broadcast({ type: "CRITICAL_DRIFT_DETECTED", payload });
+          notifyDrift(payload);
+        }
+        if (process.env.ROUTOGRAM_FOCUS_ON_CHANGE === "1" && filename) {
+          const relativeFile = filename.replaceAll("\\", "/");
+          broadcastFocus(relativeFile, nodeIdsForFile(relativeFile), "watcher");
+        }
+        console.log(`[watch] ${changedFile} changed; topology rescanned`);
+      })
+      .catch((error: unknown) => {
+        console.error(
+          `[watch] ${changedFile} changed; rescan failed: ${error instanceof Error ? error.message : String(error)}`,
         );
-        if (process.env.ROUTOGRAM_FOCUS_ON_CHANGE === "1" && filename) {
-          broadcastFocus(
-            filename.replaceAll("\\", "/"),
-            nodeIdsForFile(filename.replaceAll("\\", "/")),
-            "watcher",
-          );
-        }
-      } else {
-        broadcast({ type: "topology:invalidate", at: new Date().toISOString() });
-        console.log(`[watch] ${changedFile} changed; invalidation broadcast`);
-      }
-    });
+      });
+  });
+}
+
+startActiveWatcher();
+
+if (workspaceManager.getActiveId()) {
+  void runWorkspaceDiagnosticsAsync();
+}
 
 let shuttingDown = false;
 
@@ -1156,8 +1327,8 @@ function positiveInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
-function resolvePort(rawPort: string | undefined, label: string): number {
-  const fallback = label === "canvas" ? DEFAULT_CANVAS_PORT : DEFAULT_PORT;
+function resolvePort(rawPort: string | undefined, label: string, configured?: number): number {
+  const fallback = configured ?? (label === "canvas" ? DEFAULT_CANVAS_PORT : DEFAULT_PORT);
   const environment =
     label === "canvas" ? process.env.ROUTOGRAM_CANVAS_PORT : process.env.ROUTOGRAM_PORT;
   const portValue = Number(rawPort ?? environment ?? fallback);
@@ -1169,8 +1340,8 @@ function resolvePort(rawPort: string | undefined, label: string): number {
   return portValue;
 }
 
-function resolveCanvasPort(rawPort: string | undefined): number {
-  return resolvePort(rawPort, "canvas");
+function resolveCanvasPort(rawPort: string | undefined, configured?: number): number {
+  return resolvePort(rawPort, "canvas", configured);
 }
 
 async function findAvailablePort(preferredPort: number, label: string): Promise<number> {
@@ -1305,7 +1476,9 @@ Usage:
 
 Options:
   -p, --port <port>   Local daemon port (default: ${DEFAULT_PORT})
-  -r, --root <path>   Workspace root to scan (default: invocation directory)
+  -d, --dir <path>    Workspace folder to import and scan at startup
+  -r, --root <path>   Backward-compatible alias for --dir
+  -h, --help          Show this help
       --no-watch      Disable the filesystem watcher
       --no-open       Do not open the browser on startup
       --open          Open the browser explicitly
@@ -1350,7 +1523,8 @@ Diff options:
 Environment:
   ROUTOGRAM_PORT      Default daemon port
   ROUTOGRAM_CANVAS_PORT  Default canvas static port
-  ROUTOGRAM_ROOT      Default workspace root
+  ROUTOGRAM_USER_FOLDER  Global Routogram data directory (default: ~/.routogram)
+  ROUTOGRAM_ROOT      Backward-compatible initial workspace folder
   ROUTOGRAM_CANVAS_DIR  Override the bundled canvas directory
   ROUTOGRAM_CONFIG      Default routogram.config.* path
   ROUTOGRAM_RULEBOOK    Default .routogramrc.json / routogram.rulebook.* path

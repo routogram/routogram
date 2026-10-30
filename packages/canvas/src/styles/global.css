@@ -122,11 +122,31 @@ body {
 /* Transition ELK giữ chuyển động expand/collapse mượt mà. */
 .react-flow__node {
   pointer-events: auto;
-  transition: transform 220ms ease;
+  transition: transform 400ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .react-flow__node.dragging {
-  transition: none;
+  transition: none !important;
+}
+
+.react-flow__edge-path {
+  transition: d 400ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes node-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.routogram-node-enter {
+  animation: node-pop-in 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: center;
 }
 
 .react-flow__node.routogram-health-safe {
@@ -148,9 +168,43 @@ body {
 }
 
 .react-flow__node.routogram-health-danger {
+  border-color: rgb(244 63 94 / 0.3) !important;
+  box-shadow:
+    0 0 12px rgb(244 63 94 / 0.12),
+    0 12px 32px rgb(0 0 0 / 0.28) !important;
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out !important;
   --rg-border-active: #fb7185;
   --rg-hover-glow: rgb(244 63 94 / 0.8);
   --rg-hover-glow-soft: rgb(244 63 94 / 0.4);
+}
+
+.react-flow__node.routogram-health-danger:hover {
+  border-color: rgb(244 63 94 / 0.9) !important;
+  box-shadow:
+    0 0 20px rgb(244 63 94 / 0.35),
+    0 12px 32px rgb(0 0 0 / 0.28) !important;
+}
+
+.react-flow__node.routogram-health-warning {
+  border-color: rgb(245 158 11 / 0.3) !important;
+  box-shadow:
+    0 0 12px rgb(245 158 11 / 0.1),
+    0 12px 32px rgb(0 0 0 / 0.28) !important;
+  transition:
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out !important;
+  --rg-border-active: #fbbf24;
+  --rg-hover-glow: rgb(245 158 11 / 0.75);
+  --rg-hover-glow-soft: rgb(245 158 11 / 0.35);
+}
+
+.react-flow__node.routogram-health-warning:hover {
+  border-color: rgb(245 158 11 / 0.9) !important;
+  box-shadow:
+    0 0 20px rgb(245 158 11 / 0.3),
+    0 12px 32px rgb(0 0 0 / 0.28) !important;
 }
 
 .react-flow__node.routogram-hover-target,
@@ -200,4 +254,9 @@ body {
 .react-flow__node.routogram-store-off {
   opacity: 0.2 !important;
   pointer-events: none !important;
+}
+
+.react-flow__node.routogram-blast-affected {
+  opacity: 1 !important;
+  z-index: 25 !important;
 }
